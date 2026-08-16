@@ -29,8 +29,13 @@ err_console = Console(stderr=True)
 
 
 def _parse_article(text: str, article_id: str) -> ParsedArticle:
-    """Run the full NLP pipeline on *text* and return a :class:`ParsedArticle`."""
-    nlp = get_nlp()
+    """Run the full NLP pipeline on *text* and return a :class:`ParsedArticle`.
+
+    Language is auto-detected from *text* (CJK proportion heuristic), so
+    no ``--lang`` flag is required — Chinese and English articles are handled
+    transparently.
+    """
+    nlp = get_nlp(text)  # language-aware: detects zh vs en from text
     doc = nlp(text)
 
     sentences = [sent.text.strip() for sent in doc.sents if sent.text.strip()]
@@ -84,7 +89,9 @@ def diff_command(
 ) -> None:
     """Compare two news articles for structural framing differences.
 
-    FILE_A and FILE_B should be plain-text files containing Chinese news articles.
+    FILE_A and FILE_B should be plain-text files (UTF-8) containing news
+    articles in Traditional/Simplified Chinese or English.  Language is
+    detected automatically per file — no ``--lang`` flag is needed.
     """
     try:
         text_a = file_a.read_text(encoding="utf-8")
