@@ -6,6 +6,15 @@ from news_deframe.schemas import (
     SentenceAlignment,
     ParsedArticle,
     DiffReport,
+    SourceSentence,
+    ClaimCluster,
+    EntityOutletProfile,
+    EntityOutletMatrix,
+    ArticleFramingFeatures,
+    FramingCluster,
+    ClaimConsensus,
+    ConsensusView,
+    EventAnalysis,
 )
 
 __all__ = [
@@ -15,4 +24,13 @@ __all__ = [
     "SentenceAlignment",
     "ParsedArticle",
     "DiffReport",
+    "SourceSentence",
+    "ClaimCluster",
+    "EntityOutletProfile",
+    "EntityOutletMatrix",
+    "ArticleFramingFeatures",
+    "FramingCluster",
+    "ClaimConsensus",
+    "ConsensusView",
+    "EventAnalysis",
 ]

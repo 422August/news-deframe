@@ -2,23 +2,48 @@
 
 > **Objective structural analysis and comparative framing dissection for Chinese and English news articles.**
 
-`news-deframe` takes two articles covering the same event and surfaces exactly how they differ — not just *what* they say, but *how* they frame it: who is positioned as agent or victim, what entities are foregrounded or buried, and which claims appear in one outlet but not the other.
+`news-deframe` performs structural framing analysis on news coverage. It supports two complementary workflows:
+
+1. **Pairwise Diff (`diff`)**: Compare two articles covering the same event to surface sentence-level alignments, omissions, active/passive voice differences, and entity modifier contrasts.
+2. **Event-Level Analysis (`analyze`)**: Analyse a whole folder or collection of articles covering an event to discover shared claim clusters, entity agency/patient matrices across outlets, unsupervised framing clusters, and consensus/outlier distributions.
 
 Language is **detected automatically** from the article text — no `--lang` flag required. Both Traditional/Simplified Chinese and English are supported out of the box.
 
 ---
 
+## Philosophy & Interpretation Boundary
+
+> **news-deframe exposes framing evidence; humans interpret it.**
+
+The software reports objective structural facts:
+- *8 of 10 articles contain this claim.*
+- *Outlet A places Entity X in agent position more frequently than Outlet B.*
+- *Articles A, C, and F share similar structural framing profiles.*
+- *This claim appears only in Outlet D (coverage difference).*
+
+The software **never** makes automatic normative inferences such as:
+- *Outlet D is biased.*
+- *Outlet A is more objective.*
+- *The rare claim is false or suspicious.*
+- *Outlet C intentionally omitted the information.*
+- *Framing Cluster 2 represents politically biased media.*
+
+---
+
 ## Features
 
-| Feature | Description |
-|---|---|
-| **Bilingual Support** | Automatically detects Chinese (zh) or English (en) per article; routes to the correct spaCy pipeline |
-| **SVO Extraction** | Subject-Verb-Object triples with active/passive voice detection (`被`, `遭`, `受到`, `was … by`, `aux:pass`, …) |
-| **Entity Modifier Analysis** | Named entities paired with their associated adjective/adverb descriptors; noise types (`CARDINAL`, `DATE`, etc.) filtered out |
-| **Semantic Alignment** | Sentence-level cosine similarity matrix to find shared and divergent claims |
-| **Unshared Claim Detection** | Sentences unique to one article, exposing omissions and framing gaps |
-| **Rich Terminal Output** | Colour-coded diff report rendered in the terminal via [Rich](https://github.com/Textualize/rich) |
-| **JSON Export** | Machine-readable output for downstream pipelines or archiving |
+| Feature | Scope | Description |
+|---|---|---|
+| **Bilingual Support** | `diff` & `analyze` | Automatically detects Chinese (zh) or English (en) per article; routes to the correct spaCy pipeline |
+| **SVO Extraction** | `diff` & `analyze` | Subject-Verb-Object triples with active/passive voice detection (`被`, `遭`, `受到`, `was … by`, `aux:pass`, …) |
+| **Entity Framing Analysis** | `diff` & `analyze` | Named entities paired with evaluative adjectives/adverbs and structural roles (agent vs. patient) |
+| **Sentence Semantic Alignment** | `diff` | Cosine similarity matrix to align sentences between two articles |
+| **Multi-Document Claim Clustering** | `analyze` | Generalizes semantic alignment across N articles; deduplicates within-article repetitions |
+| **Entity × Outlet Framing Matrix** | `analyze` | Cross-outlet agent/patient ratios, passive counts, associated verbs, and modifiers per entity |
+| **Unsupervised Framing Clusters** | `analyze` | Groups articles by structural framing similarity with neutral labels (`Framing Cluster 1`, …) |
+| **Consensus / Outlier View** | `analyze` | Frequency classification (`Widely shared`, `Commonly reported`, `Minority coverage`, `Rare claim`) with absent outlet lists |
+| **Rich Terminal Output** | `diff` & `analyze` | Colour-coded reports rendered in the terminal via [Rich](https://github.com/Textualize/rich) |
+| **JSON Export** | `diff` & `analyze` | Full structured Pydantic v2 data for downstream visualization, research, or pipelines |
 
 ---
 
@@ -49,7 +74,57 @@ python -m spacy download en_core_web_md   # English
 
 ## Usage
 
-### CLI
+### 1. Multi-Article Event Analysis (`analyze`)
+
+The `analyze` command operates on a directory containing news articles about the same event or multiple explicit files:
+
+```bash
+# Analyze an event directory (conventional workflow)
+news-deframe analyze articles/event_001/
+
+# Analyze multiple explicit files directly
+news-deframe analyze outlet_a.txt outlet_b.txt outlet_c.txt
+
+# External folders outside the repository are fully supported
+news-deframe analyze "/path/to/my/event_articles/"
+
+# Export event analysis to JSON
+news-deframe analyze articles/event_001/ --format json
+
+# Save JSON report to a file
+news-deframe analyze articles/event_001/ --format json --output event_report.json
+
+# Custom similarity threshold and number of framing clusters
+news-deframe analyze articles/event_001/ --threshold 0.55 --clusters 3
+```
+
+#### Event Folder Convention
+
+```text
+news-deframe/
+├── articles/
+│   └── event_001/
+│       ├── outlet_a.txt
+│       ├── outlet_b.txt
+│       ├── outlet_c.txt
+│       └── outlet_d.txt
+├── src/
+├── tests/
+├── README.md
+└── pyproject.toml
+```
+
+- Each directory represents one **event corpus** (e.g. `event_001`).
+- Files are loaded **non-recursively** by default.
+- Supported file type: `.txt` (UTF-8 encoded).
+- Article IDs are derived from filename stems (`outlet_a`, …).
+- Discovery is sorted deterministically in lexicographical order.
+- Hidden files (`.gitkeep`, `.DS_Store`) and non-`.txt` files are safely ignored.
+- Minimum 2 usable articles required per analysis.
+
+### 2. Pairwise Diff (`diff`)
+
+The original pairwise command remains fully operational for granular 2-article comparisons:
 
 ```bash
 # Rich terminal diff report (default) – language is auto-detected per file
@@ -61,78 +136,41 @@ news-deframe diff article_en_a.txt article_en_b.txt
 # Adjust the similarity threshold (default: 0.60)
 news-deframe diff article_a.txt article_b.txt --threshold 0.5
 
-# JSON output to stdout
-news-deframe diff article_a.txt article_b.txt --format json
-
-# Save JSON report to a file
-news-deframe diff article_a.txt article_b.txt --format json --output report.json
-```
-
-**Arguments**
-
-| Argument / Option | Default | Description |
-|---|---|---|
-| `FILE_A` | — | Path to the first article (UTF-8 plain text) |
-| `FILE_B` | — | Path to the second article (UTF-8 plain text) |
-| `--threshold FLOAT` | `0.60` | Cosine similarity cutoff for sentence matching |
-| `--format console\|json` | `console` | Output format |
-| `--output / -o PATH` | — | Write JSON output to file (only with `--format json`) |
-
-### Python API
-
-```python
-from news_deframe.parser.spacy_loader import get_nlp
-from news_deframe.parser.svo import extract_svo
-from news_deframe.parser.entities import extract_entity_modifiers
-from news_deframe.diff.coverage import compute_coverage
-from news_deframe.schemas import ParsedArticle
-
-def parse(text: str, article_id: str) -> ParsedArticle:
-    # Language is auto-detected from text (CJK proportion heuristic)
-    nlp = get_nlp(text)
-    doc = nlp(text)
-    return ParsedArticle(
-        article_id=article_id,
-        sentences=[s.text.strip() for s in doc.sents if s.text.strip()],
-        svo_records=extract_svo(doc),
-        entity_modifiers=extract_entity_modifiers(doc),
-    )
-
-article_a = parse(open("article_a.txt").read(), "article_a")
-article_b = parse(open("article_b.txt").read(), "article_b")
-
-report = compute_coverage(article_a, article_b, threshold=0.60)
-
-print(f"Passive ratio A: {report.passive_ratio_a:.1%}")
-print(f"Passive ratio B: {report.passive_ratio_b:.1%}")
-print(f"Unshared claims in A: {len(report.unshared_claims_a)}")
-print(f"Unshared claims in B: {len(report.unshared_claims_b)}")
+# JSON output to stdout or file
+news-deframe diff article_a.txt article_b.txt --format json -o diff_report.json
 ```
 
 ---
 
-## Output Schema
+## Data Models
 
-The core output is a `DiffReport` Pydantic model:
+All data models are strongly typed with **Pydantic v2**.
+
+### Event Analysis Schema (`EventAnalysis`)
+
+```python
+class EventAnalysis(BaseModel):
+    event_id: str                          # e.g. "event_001"
+    articles: list[ParsedArticle]          # full parsed article records
+    article_ids: list[str]                 # ordered list of outlet IDs
+    claim_clusters: list[ClaimCluster]     # multi-document claim clusters
+    entity_outlet_matrix: EntityOutletMatrix # entity agency / patient profiles
+    framing_clusters: list[FramingCluster] # unsupervised structural framing groups
+    consensus_view: ConsensusView          # claim frequency & absent outlet view
+```
+
+### Pairwise Diff Schema (`DiffReport`)
 
 ```python
 class DiffReport(BaseModel):
     article_a_id: str
     article_b_id: str
-    alignments: list[SentenceAlignment]   # per-sentence best-match pairs
-    unshared_claims_a: list[str]          # sentences only in A
-    unshared_claims_b: list[str]          # sentences only in B
-    passive_ratio_a: float                # fraction of passive SVO records in A
-    passive_ratio_b: float                # fraction of passive SVO records in B
+    alignments: list[SentenceAlignment]    # per-sentence best-match pairs
+    unshared_claims_a: list[str]           # sentences unique to A
+    unshared_claims_b: list[str]           # sentences unique to B
+    passive_ratio_a: float                 # fraction of passive SVO records in A
+    passive_ratio_b: float                 # fraction of passive SVO records in B
 ```
-
-Each `SentenceAlignment` record contains:
-
-| Field | Type | Description |
-|---|---|---|
-| `sent_a` | `str` | Sentence from article A |
-| `sent_b` | `str \| None` | Best-matching sentence from B, or `None` if below threshold |
-| `similarity_score` | `float [0, 1]` | Cosine similarity between the two sentences |
 
 ---
 
@@ -142,36 +180,49 @@ Each `SentenceAlignment` record contains:
 news-deframe/
 ├── pyproject.toml
 ├── README.md
+├── articles/
+│   ├── .gitkeep
+│   └── event_001/
 ├── tests/
 │   ├── fixtures/
-│   │   ├── incident_01_a.txt        # Chinese news sample (police framing)
-│   │   ├── incident_01_b.txt        # Chinese news sample (community framing)
-│   │   ├── incident_en_01_a.txt     # English news sample (active/official framing)
-│   │   └── incident_en_01_b.txt     # English news sample (passive/community framing)
-│   ├── test_svo.py                  # SVO extraction + passive detection tests (zh + en)
-│   └── test_diff.py                 # Alignment + coverage diff tests
+│   ├── test_svo.py               # SVO extraction + passive detection tests (zh + en)
+│   ├── test_entities.py          # NER & modifier extraction tests
+│   ├── test_diff.py              # Pairwise alignment + coverage diff tests
+│   ├── test_article_loader.py    # Folder discovery, ordering, validation tests
+│   ├── test_analysis.py          # Claim clustering, entity matrix, framing clusters, consensus tests
+│   ├── test_cli_analyze.py       # CLI analyze command & diff backward compatibility tests
+│   └── test_corpora.py           # Chinese, English, and mixed corpora tests
 └── src/
     └── news_deframe/
         ├── __init__.py
-        ├── cli.py                # Click CLI entry point (auto language detection)
-        ├── schemas.py            # Pydantic v2 models
+        ├── cli.py                # Click CLI entry point (diff + analyze commands)
+        ├── schemas.py            # Pydantic v2 schemas
         ├── parser/
         │   ├── spacy_loader.py   # Language detector + lazy per-lang model cache
         │   ├── svo.py            # Bilingual SVO extractor + passive detector
-        │   └── entities.py       # NER + modifier extractor (with entity type filter)
+        │   ├── entities.py       # NER + modifier extractor
+        │   └── article_loader.py # Folder discovery & multi-file loader
         ├── diff/
         │   ├── aligner.py        # Embedding + cosine similarity matrix
         │   └── coverage.py       # Unshared claim detection
+        ├── analysis/
+        │   ├── claims.py         # Multi-document claim clustering
+        │   ├── entity_matrix.py  # Entity × outlet structural framing matrix
+        │   ├── framing_clusters.py # Unsupervised framing clustering
+        │   ├── consensus.py      # Consensus & outlier view
+        │   ├── event.py          # Top-level event analysis orchestrator
+        │   └── schemas.py        # Event-level Pydantic schemas
         └── formatters/
-            ├── console.py        # Rich terminal renderer
-            └── json_export.py    # JSON serialiser
+            ├── console.py        # Rich terminal diff renderer
+            ├── event_console.py  # Rich terminal event analysis renderer
+            └── json_export.py    # JSON serialiser for diff & event reports
 ```
 
 ---
 
 ## Running Tests
 
-Tests run **without** downloading any models — all NLP and embedding calls are mocked with deterministic stubs.
+Tests run **offline without model downloads** using deterministic mocking:
 
 ```bash
 # Run the full test suite
@@ -180,16 +231,6 @@ pytest
 # With coverage report
 pytest --cov=news_deframe --cov-report=term-missing
 ```
-
----
-
-## Design Principles
-
-- **No side effects on import** — model loading is lazy and thread-safe; importing any module never triggers a download.
-- **Automatic language detection** — `detect_language(text)` uses a dependency-free CJK proportion heuristic; no `--lang` flag needed anywhere.
-- **Strict type safety** — all public interfaces are typed with Pydantic v2 models.
-- **Modular** — parsing, diffing, and formatting are fully isolated concerns; swap any layer independently.
-- **Testable** — NLP and embedding layers are designed to be easily mocked, keeping the test suite fast and offline-safe.
 
 ---
 

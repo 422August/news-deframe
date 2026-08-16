@@ -148,3 +148,35 @@ class DiffReport(BaseModel):
         le=1.0,
         description="Fraction of SVO records in B that are passive",
     )
+
+
+# ── Event-Level Analysis Schemas ───────────────────────────────────────────────
+from news_deframe.analysis.schemas import (  # noqa: E402
+    ArticleFramingFeatures,
+    ClaimCluster,
+    ClaimConsensus,
+    ConsensusView,
+    EntityOutletMatrix,
+    EntityOutletProfile,
+    EventAnalysis,
+    FramingCluster,
+    SourceSentence,
+)
+
+__all__ = [
+    "SVORecord",
+    "FramingDescriptor",
+    "EntityModifier",
+    "SentenceAlignment",
+    "ParsedArticle",
+    "DiffReport",
+    "SourceSentence",
+    "ClaimCluster",
+    "EntityOutletProfile",
+    "EntityOutletMatrix",
+    "ArticleFramingFeatures",
+    "FramingCluster",
+    "ClaimConsensus",
+    "ConsensusView",
+    "EventAnalysis",
+]

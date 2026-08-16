@@ -111,17 +111,24 @@ def _strip_punct(text: str) -> str:
     return text
 
 
-def _is_valid_entity(ent: "Span") -> bool:
+_BLOCKLISTED_ENTITIES: frozenset[str] = frozenset({"會表", "謹衝", "黑箱"})
+
+
+def _is_valid_entity(ent: "Span | str") -> bool:
     """Validate named entity spans using POS purity, boundary chars, and length."""
-    raw_text = ent.text.strip()
-    text = _strip_punct(raw_text)
+    raw_text = ent if isinstance(ent, str) else ent.text
+    text = _strip_punct(raw_text.strip())
 
     if len(text) < 2:
         return False
 
-    # 實體內部若跨越動詞、介系詞、連詞或標點，判定為斷詞破裂
-    if any(token.pos_ in _INVALID_ENTITY_POS for token in ent):
+    if text in _BLOCKLISTED_ENTITIES:
         return False
+
+    # 實體內部若跨越動詞、介系詞、連詞或標點，判定為斷詞破裂
+    if not isinstance(ent, str):
+        if any(getattr(token, "pos_", None) in _INVALID_ENTITY_POS for token in ent):
+            return False
 
     # 首尾字元虛詞與動作字首防護
     if _is_cjk(text[0]) and text[0] in _ZH_VERB_PREFIX_CHARS:
