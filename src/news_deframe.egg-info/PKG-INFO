@@ -1,0 +1,157 @@
+Metadata-Version: 2.4
+Name: news-deframe
+Version: 0.1.0
+Summary: Objective structural analysis and comparative framing dissection between two news articles
+Author: news-deframe contributors
+License: MIT
+Keywords: nlp,news,framing,analysis,chinese
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Text Processing :: Linguistic
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: pydantic>=2.0
+Requires-Dist: spacy>=3.7
+Requires-Dist: sentence-transformers>=2.2
+Requires-Dist: rich>=13.0
+Requires-Dist: click>=8.1
+Provides-Extra: dev
+Requires-Dist: pytest>=7.4; extra == "dev"
+Requires-Dist: pytest-cov>=4.1; extra == "dev"
+Dynamic: license-file
+
+# news-deframe
+
+**Objective structural analysis and comparative framing dissection for Chinese news articles.**
+
+`news-deframe` compares two articles covering the same event and surfaces:
+
+- 🔍 **SVO extraction** – Subject-Verb-Object triples with active/passive voice detection (被, 遭, 受到…)
+- 🏷️ **Entity modifier analysis** – Named entities and their associated adjective/adverb descriptors
+- 📐 **Semantic alignment** – Sentence-level cosine similarity to find shared and divergent claims
+- 📋 **Unshared claim detection** – Sentences that appear only in one article (omissions, framing gaps)
+
+---
+
+## Requirements
+
+- Python 3.10+
+- spaCy model: `zh_core_web_md`
+- sentence-transformers: `paraphrase-multilingual-MiniLM-L12-v2` (auto-downloaded on first run)
+
+---
+
+## Installation
+
+```bash
+# Install from source
+pip install -e ".[dev]"
+
+# Download the spaCy Chinese model
+python -m spacy download zh_core_web_md
+```
+
+---
+
+## Usage
+
+### CLI
+
+```bash
+# Console (rich terminal) output
+news-deframe diff article_a.txt article_b.txt
+
+# With custom similarity threshold
+news-deframe diff article_a.txt article_b.txt --threshold 0.5
+
+# JSON output
+news-deframe diff article_a.txt article_b.txt --format json
+
+# Save JSON to file
+news-deframe diff article_a.txt article_b.txt --format json --output report.json
+```
+
+### Python API
+
+```python
+from news_deframe.parser.spacy_loader import get_nlp
+from news_deframe.parser.svo import extract_svo
+from news_deframe.parser.entities import extract_entity_modifiers
+from news_deframe.diff.coverage import compute_coverage
+from news_deframe.schemas import ParsedArticle
+
+nlp = get_nlp()
+
+def parse(text: str, article_id: str) -> ParsedArticle:
+    doc = nlp(text)
+    return ParsedArticle(
+        article_id=article_id,
+        sentences=[s.text.strip() for s in doc.sents if s.text.strip()],
+        svo_records=extract_svo(doc),
+        entity_modifiers=extract_entity_modifiers(doc),
+    )
+
+article_a = parse(open("article_a.txt").read(), "article_a")
+article_b = parse(open("article_b.txt").read(), "article_b")
+report = compute_coverage(article_a, article_b, threshold=0.60)
+
+print(f"Passive ratio A: {report.passive_ratio_a:.1%}")
+print(f"Unshared claims in A: {len(report.unshared_claims_a)}")
+```
+
+---
+
+## Running Tests
+
+```bash
+pytest
+# or with coverage
+pytest --cov=news_deframe --cov-report=term-missing
+```
+
+Tests run **without** downloading models (all NLP calls are mocked).
+
+---
+
+## Project Structure
+
+```
+news-deframe/
+├── pyproject.toml
+├── README.md
+├── tests/
+│   ├── fixtures/
+│   │   ├── incident_01_a.txt   # Chinese news sample (police framing)
+│   │   └── incident_01_b.txt   # Chinese news sample (community framing)
+│   ├── test_svo.py             # SVO extraction + passive detection tests
+│   └── test_diff.py            # Alignment + coverage diff tests
+└── src/
+    └── news_deframe/
+        ├── __init__.py
+        ├── cli.py              # Click CLI entry point
+        ├── schemas.py          # Pydantic v2 models
+        ├── parser/
+        │   ├── spacy_loader.py # Lazy model loader
+        │   ├── svo.py          # SVO + passive extractor
+        │   └── entities.py     # NER + modifier extractor
+        ├── diff/
+        │   ├── aligner.py      # Embedding + cosine similarity matrix
+        │   └── coverage.py     # Unshared claim detection
+        └── formatters/
+            ├── console.py      # Rich terminal renderer
+            └── json_export.py  # JSON serializer
+```
+
+---
+
+## Design Principles
+
+- **No side effects on import** – model loading is lazy and thread-safe.
+- **Strict type safety** – all public interfaces use Pydantic v2 models.
+- **Modular** – each concern (parsing, diffing, formatting) is isolated.
+- **Testable** – NLP and embedding layers are easily mocked.

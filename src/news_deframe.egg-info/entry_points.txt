@@ -1,0 +1,2 @@
+[console_scripts]
+news-deframe = news_deframe.cli:main
