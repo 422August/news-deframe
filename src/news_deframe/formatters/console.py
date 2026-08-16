@@ -118,19 +118,19 @@ def render_diff_report(
 
         c.print(claims_table)
 
-    # ── Entity Modifier Contrast ─────────────────────────────────────────────
+    # ── Framing & Evaluative Descriptors ─────────────────────────────────────
     em_table = Table(
-        title="Named Entity Modifier Contrast",
+        title="Framing & Evaluative Descriptors",
         box=box.SIMPLE,
         expand=True,
         header_style="bold white",
     )
-    em_table.add_column("Entity", style="bold")
+    em_table.add_column("Target", style="bold")
     em_table.add_column("Type", justify="center")
     em_table.add_column(f"Modifiers in [cyan]{report.article_a_id}[/cyan]", style="cyan")
     em_table.add_column(f"Modifiers in [yellow]{report.article_b_id}[/yellow]", style="yellow")
 
-    # Merge entities by name+type
+    # Merge framing descriptors by name+type
     entity_map_a: dict[tuple[str, str], list[str]] = {
         (em.entity_name, em.entity_type): em.modifiers for em in article_a.entity_modifiers
     }
@@ -139,11 +139,38 @@ def render_diff_report(
     }
     all_keys = sorted(entity_map_a.keys() | entity_map_b.keys())
 
+    _TYPE_TAG: dict[str, str] = {
+        "VERB_ACTION": "ACTION",
+        "EVENT_NOUN": "EVENT",
+        "PERSON": "PERSON",
+        "PER": "PERSON",
+        "ORG": "ORG",
+        "GPE": "GPE",
+        "LOC": "LOC",
+        "NORP": "NORP",
+        "FAC": "FAC",
+        "EVENT": "EVENT",
+    }
+
+    rows_added = 0
     for key in all_keys:
         name, label = key
-        mods_a = ", ".join(entity_map_a.get(key, [])) or "—"
-        mods_b = ", ".join(entity_map_b.get(key, [])) or "—"
-        em_table.add_row(name, label, mods_a, mods_b)
+        mods_a = entity_map_a.get(key, [])
+        mods_b = entity_map_b.get(key, [])
 
-    if all_keys:
+        # Omit entries where neither article has any modifiers
+        if not mods_a and not mods_b:
+            continue
+
+        tag = _TYPE_TAG.get(label, label)
+        tagged_name = f"[{tag}] {name}"
+        em_table.add_row(
+            tagged_name,
+            label,
+            ", ".join(mods_a) if mods_a else "—",
+            ", ".join(mods_b) if mods_b else "—",
+        )
+        rows_added += 1
+
+    if rows_added:
         c.print(em_table)

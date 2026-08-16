@@ -31,8 +31,41 @@ class SVORecord(BaseModel):
     )
 
 
+class FramingDescriptor(BaseModel):
+    """A framing target (named entity, action verb, or event noun) with evaluative modifiers.
+
+    This is the canonical modifier record returned by the entities pipeline.
+
+    ``target_type`` values
+    ----------------------
+    NER labels     ``PERSON``, ``ORG``, ``GPE``, ``NORP``, ``EVENT``, ``FAC``, ``PER``, ``LOC``
+    Predicates     ``VERB_ACTION``  – an action verb carrying evaluative adverbs
+    Event nouns    ``EVENT_NOUN``   – a key noun bearing adjectival / compound modifiers
+    """
+
+    target: str = Field(..., description="Surface form of the entity, verb, or event noun")
+    target_type: str = Field(
+        ...,
+        description=(
+            "spaCy NER label (PERSON/ORG/GPE/…) or synthetic tag "
+            "(VERB_ACTION, EVENT_NOUN)"
+        ),
+    )
+    modifiers: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Evaluative adjectives (amod) and adverbs (advmod) attached to the target"
+        ),
+    )
+
+
 class EntityModifier(BaseModel):
-    """A named entity paired with its descriptive modifiers."""
+    """A named entity paired with its descriptive modifiers.
+
+    .. deprecated::
+        Use :class:`FramingDescriptor` for new code.  ``EntityModifier`` is
+        retained for backwards-compatibility with existing consumers and tests.
+    """
 
     entity_name: str = Field(..., description="Surface form of the named entity")
     entity_type: str = Field(..., description="spaCy NER label (e.g. PERSON, ORG)")
@@ -40,6 +73,14 @@ class EntityModifier(BaseModel):
         default_factory=list,
         description="Adjectives (amod) and adverbs (advmod) associated with the entity",
     )
+
+    def to_framing_descriptor(self) -> FramingDescriptor:
+        """Convert to the canonical :class:`FramingDescriptor` representation."""
+        return FramingDescriptor(
+            target=self.entity_name,
+            target_type=self.entity_type,
+            modifiers=self.modifiers,
+        )
 
 
 class SentenceAlignment(BaseModel):
@@ -70,7 +111,14 @@ class ParsedArticle(BaseModel):
 
     article_id: str = Field(..., description="Unique identifier (e.g. filename stem)")
     svo_records: list[SVORecord] = Field(default_factory=list)
-    entity_modifiers: list[EntityModifier] = Field(default_factory=list)
+    entity_modifiers: list[EntityModifier] = Field(
+        default_factory=list,
+        description=(
+            "Framing descriptors for this article.  "
+            "The field name is kept for backwards compatibility; entries may now "
+            "include VERB_ACTION and EVENT_NOUN targets in addition to NER entities."
+        ),
+    )
     sentences: list[str] = Field(default_factory=list, description="Raw sentence strings")
 
 
