@@ -156,12 +156,27 @@ def diff_command(
     type=click.IntRange(1, 20),
     help="Number of framing clusters (default: min(3, n_articles)).",
 )
+@click.option(
+    "--details",
+    is_flag=True,
+    default=False,
+    help="Display claim-level evidence and source sentences for manual inspection.",
+)
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    default=False,
+    help="Display technical diagnostics, similarity scores, centroids, and full actor details.",
+)
 def analyze_command(
     sources: tuple[Path, ...],
     threshold: float,
     output_format: str,
     output: Path | None,
     n_clusters: int | None,
+    details: bool,
+    verbose: bool,
 ) -> None:
     """Analyse multiple articles about the same event.
 
@@ -257,7 +272,7 @@ def analyze_command(
         else:
             click.echo(json_str)
     else:
-        render_event_analysis(analysis)
+        render_event_analysis(analysis, details=details, verbose=verbose)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,10 @@
 Tests verify:
 - Directory-based multi-article analysis: `news-deframe analyze articles/event_001/`
 - Direct multi-file analysis: `news-deframe analyze a.txt b.txt c.txt`
+- Default concise research presentation (integrated Claim Coverage, actor blocks, research notes)
+- `--details` flag: exposes source sentences and present/absent outlets for human coding
+- `--verbose` flag: exposes centroid feature values, denominators, similarity values
+- Combined `--details --verbose`
 - Output formatting (console, JSON stdout, JSON file output)
 - Threshold & clusters options
 - Error handling (unreadable files, single article, non-existent folder)
@@ -12,7 +16,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -20,10 +24,8 @@ from click.testing import CliRunner
 
 from news_deframe.cli import main
 from news_deframe.schemas import (
-    DiffReport,
     EntityModifier,
     ParsedArticle,
-    SentenceAlignment,
     SVORecord,
 )
 
@@ -72,8 +74,8 @@ def _fake_embed_sentences(sentences: list[str]) -> np.ndarray:
 
 
 class TestCliAnalyze:
-    def test_analyze_folder_console_output(self, tmp_path: Path):
-        """news-deframe analyze <folder> prints event-level console report."""
+    def test_analyze_folder_default_console_output(self, tmp_path: Path):
+        """news-deframe analyze <folder> prints concise research-oriented report."""
         event_dir = tmp_path / "event_001"
         event_dir.mkdir()
         (event_dir / "outlet_a.txt").write_text("Police arrested three suspects.\nInvestigation ongoing.", encoding="utf-8")
@@ -87,10 +89,83 @@ class TestCliAnalyze:
             result = runner.invoke(main, ["analyze", str(event_dir)])
 
         assert result.exit_code == 0
-        assert "EVENT ANALYSIS" in result.output
+        assert "Event Analysis" in result.output
         assert "event_001" in result.output
         assert "Claim Coverage" in result.output
-        assert "Consensus / Outliers" in result.output
+        # Summary counts present in merged claim coverage section
+        assert "Shared by all outlets:" in result.output
+        assert "Shared by majority:" in result.output
+        assert "Single-outlet claims:" in result.output
+        # Duplicated consensus section is removed from default view
+        assert "Consensus / Outliers" not in result.output
+        # Actor framing section present
+        assert "Actor Framing by Outlet" in result.output
+        assert "Ratios are calculated from occurrences with an identifiable agent/patient role." in result.output
+        # Centroid values hidden in default view
+        assert "Centroid —" not in result.output
+        assert "mean_agent_ratio" not in result.output
+        # Detailed claim panels / source sentences hidden by default
+        assert "Detailed Claim Evidence" not in result.output
+        assert "Source sentences:" not in result.output
+        # Research interpretation notes present
+        assert "Research Interpretation Notes" in result.output
+
+    def test_analyze_folder_details_flag(self, tmp_path: Path):
+        """news-deframe analyze <folder> --details shows claim source sentences without technical sim."""
+        event_dir = tmp_path / "event_details"
+        event_dir.mkdir()
+        (event_dir / "outlet_a.txt").write_text("Police arrested three suspects.", encoding="utf-8")
+        (event_dir / "outlet_b.txt").write_text("Three suspects were detained by police.", encoding="utf-8")
+
+        runner = CliRunner()
+        with patch("news_deframe.cli._parse_article", side_effect=_fake_parse_article), \
+             patch("news_deframe.diff.aligner.embed_sentences", side_effect=_fake_embed_sentences), \
+             patch("news_deframe.diff.coverage.embed_sentences", side_effect=_fake_embed_sentences):
+            result = runner.invoke(main, ["analyze", str(event_dir), "--details"])
+
+        assert result.exit_code == 0
+        assert "Detailed Claim Evidence" in result.output
+        assert "Representative:" in result.output
+        assert "Present outlets:" in result.output
+        assert "Absent outlets:" in result.output
+        assert "Source sentences:" in result.output
+        # In --details alone, technical similarity scores are omitted
+        assert "(sim=" not in result.output
+
+    def test_analyze_folder_verbose_flag(self, tmp_path: Path):
+        """news-deframe analyze <folder> --verbose exposes centroid values and exact denominators."""
+        event_dir = tmp_path / "event_verbose"
+        event_dir.mkdir()
+        (event_dir / "outlet_a.txt").write_text("Police arrested three suspects.", encoding="utf-8")
+        (event_dir / "outlet_b.txt").write_text("Three suspects were detained by police.", encoding="utf-8")
+
+        runner = CliRunner()
+        with patch("news_deframe.cli._parse_article", side_effect=_fake_parse_article), \
+             patch("news_deframe.diff.aligner.embed_sentences", side_effect=_fake_embed_sentences), \
+             patch("news_deframe.diff.coverage.embed_sentences", side_effect=_fake_embed_sentences):
+            result = runner.invoke(main, ["analyze", str(event_dir), "--verbose"])
+
+        assert result.exit_code == 0
+        assert "Centroid —" in result.output
+        assert "Exact denominator:" in result.output
+
+    def test_analyze_folder_details_and_verbose_combined(self, tmp_path: Path):
+        """news-deframe analyze <folder> --details --verbose shows source sentences with similarity scores."""
+        event_dir = tmp_path / "event_both"
+        event_dir.mkdir()
+        (event_dir / "outlet_a.txt").write_text("Police arrested three suspects.", encoding="utf-8")
+        (event_dir / "outlet_b.txt").write_text("Three suspects were detained by police.", encoding="utf-8")
+
+        runner = CliRunner()
+        with patch("news_deframe.cli._parse_article", side_effect=_fake_parse_article), \
+             patch("news_deframe.diff.aligner.embed_sentences", side_effect=_fake_embed_sentences), \
+             patch("news_deframe.diff.coverage.embed_sentences", side_effect=_fake_embed_sentences):
+            result = runner.invoke(main, ["analyze", str(event_dir), "--details", "--verbose"])
+
+        assert result.exit_code == 0
+        assert "Detailed Claim Evidence" in result.output
+        assert "Centroid —" in result.output
+        assert "(sim=" in result.output
 
     def test_analyze_folder_json_stdout(self, tmp_path: Path):
         """news-deframe analyze <folder> --format json dumps valid EventAnalysis JSON to stdout."""
@@ -152,8 +227,8 @@ class TestCliAnalyze:
             result = runner.invoke(main, ["analyze", str(f1), str(f2), str(f3)])
 
         assert result.exit_code == 0
-        assert "EVENT ANALYSIS" in result.output
-        assert "Articles analysed:  3" in result.output or "Articles analysed:" in result.output
+        assert "Event Analysis" in result.output
+        assert "Articles:" in result.output or "Articles analysed:" in result.output
 
     def test_analyze_folder_insufficient_articles_error(self, tmp_path: Path):
         """Single article folder triggers an error with exit code 1."""

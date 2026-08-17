@@ -47,11 +47,11 @@ The output is evidence for human interpretation, not a verdict.
 | **Entity Framing**         |    ✓   |     ✓     | Examines named entities, modifiers, and structural roles                    |
 | **Semantic Alignment**     |    ✓   |     —     | Aligns semantically similar sentences between two articles                  |
 | **Unshared Claims**        |    ✓   |     —     | Surfaces claims found in only one side of a pairwise comparison             |
-| **Claim Clustering**       |    —   |     ✓     | Groups semantically related claims across multiple articles                 |
-| **Entity × Outlet Matrix** |    —   |     ✓     | Compares entity agency/patient patterns across outlets                      |
+| **Claim Coverage**         |    —   |     ✓     | Integrated table of shared/single-outlet claims and absent outlets          |
+| **Actor Framing Blocks**   |    —   |     ✓     | Compares entity agency/patient patterns and associated actions by outlet    |
 | **Framing Clusters**       |    —   |     ✓     | Groups articles with similar structural framing profiles                    |
-| **Consensus / Outliers**   |    —   |     ✓     | Shows claim coverage and identifies outlets where claims are absent         |
-| **Rich Terminal Reports**  |    ✓   |     ✓     | Human-readable colour terminal output                                       |
+| **Presentation Tiers**     |    —   |     ✓     | Concise default summary, `--details` for coding, `--verbose` for diagnostics|
+| **Rich Terminal Reports**  |    ✓   |     ✓     | Terminal-width-aware, human-readable colour reports                         |
 | **JSON Export**            |    ✓   |     ✓     | Structured Pydantic v2 output for research and downstream processing        |
 
 ---
@@ -149,9 +149,63 @@ Event directories are loaded non-recursively.
 
 One directory should contain articles covering the **same event**. Mixing unrelated events will reduce the usefulness of claim clustering and framing comparisons.
 
-### Options
+### Presentation Levels & CLI Options
 
-Adjust the semantic similarity threshold:
+`news-deframe analyze` provides three presentation tiers tailored for different analytical needs:
+
+1. **Default View**: A concise, research-oriented summary designed for social-science and media studies.
+2. **`--details`**: Detailed claim-level evidence, present/absent outlets, and full source sentences for human coding and manual inspection.
+3. **`--verbose` (`-v`)**: Technical diagnostics including cluster centroid feature values, sentence similarity scores, exact ratio denominators, and all actors.
+4. **`--format json`**: Full structured Pydantic v2 data model export for downstream statistical processing and archival.
+
+#### Default Concise Analysis
+
+```bash
+news-deframe analyze articles/event_001/
+```
+
+Displays:
+* Compact header with event ID and article/cluster counts.
+* Integrated **Claim Coverage** table with aggregate counts (`Shared by all outlets`, `Shared by majority`, `Single-outlet claims`).
+* **Actor Framing by Outlet** vertical blocks showing agent/patient grammatical ratios and associated actions for top actors.
+* **Framing Clusters** listing structural cluster membership.
+* **Research Interpretation Notes** clarifying scientific guardrails.
+
+#### Human Coding / Manual Inspection (`--details`)
+
+```bash
+news-deframe analyze articles/event_001/ --details
+```
+
+Adds claim-level panels containing:
+* Representative claim sentence
+* Coverage ratio and percentage
+* Present outlets and absent outlets
+* Extracted source sentences grouped by article ID (without technical similarity noise)
+
+#### Technical Diagnostics (`--verbose` or `-v`)
+
+```bash
+news-deframe analyze articles/event_001/ --verbose
+```
+
+Exposes engineering diagnostics:
+* Framing cluster centroid feature values (`passive_ratio`, `mean_agent_ratio`, `mean_patient_ratio`, etc.)
+* Exact denominator definitions (`role_occurrence_count = agent_count + patient_count`)
+* Passive patient rate (`Passive Pt`) and evaluative modifiers
+* Complete actor matrix beyond the default top 5
+
+#### Combined Inspection & Diagnostics
+
+```bash
+news-deframe analyze articles/event_001/ --details --verbose
+```
+
+Shows full source sentences with similarity scores (`sim=0.76`) along with centroid feature values and complete diagnostics.
+
+#### Additional Flags
+
+Adjust semantic similarity threshold:
 
 ```bash
 news-deframe analyze articles/event_001/ --threshold 0.55
@@ -163,13 +217,13 @@ Set the requested number of framing clusters:
 news-deframe analyze articles/event_001/ --clusters 3
 ```
 
-Export JSON:
+Export structured JSON:
 
 ```bash
 news-deframe analyze articles/event_001/ --format json
 ```
 
-Save the report:
+Save JSON to file:
 
 ```bash
 news-deframe analyze articles/event_001/ \
@@ -222,121 +276,84 @@ Event
 │
 ├── Articles
 │
-├── Claim Clusters
-│   ├── shared claims
-│   ├── minority-coverage claims
-│   └── article coverage
+├── Integrated Claim Coverage
+│   ├── summary counts (all / majority / single-outlet)
+│   ├── descriptive coverage categories
+│   ├── absent outlets
+│   └── representative claims
 │
-├── Entities
-│   ├── agent roles
-│   ├── patient roles
-│   ├── passive constructions
-│   ├── associated verbs
-│   └── modifiers
-│
-├── Entity × Outlet Framing Matrix
+├── Actor Framing by Outlet
+│   ├── agent ratios
+│   ├── patient ratios
+│   ├── role observations (agent + patient occurrences)
+│   └── associated actions / predicates
 │
 ├── Framing Clusters
+│   ├── structural profile membership
+│   └── cluster centroids (in --verbose)
 │
-└── Consensus / Outlier View
+└── Research Interpretation Notes
 ```
 
-## Claim Clustering
+## Integrated Claim Coverage
 
-Sentences across all articles are embedded and compared semantically. Related claims are grouped into clusters representing information shared across the event corpus.
+Sentences across all articles are embedded and verified for propositional equivalence. Related claims are grouped into clusters and classified by descriptive coverage frequency:
 
-A cluster might look conceptually like:
+* **Widely shared** (e.g. 3/3 outlets)
+* **Commonly reported** (e.g. 2/3 outlets)
+* **Minority coverage** / **Single-outlet** (e.g. 1/3 outlets)
 
 ```text
-Claim C01
-Representative:
-"Police arrested three protesters."
+Shared by all outlets:     3
+Shared by majority:        1
+Single-outlet claims:      20
 
-Present in:
-- outlet_a
-- outlet_b
-- outlet_d
-
-Coverage: 3 / 5
+Claim   Coverage   Category            Missing      Representative
+C01     3/3        Widely shared       —            Police and organizers confirmed...
+C02     3/3        Widely shared       —            According to police, demonstrators...
+C04     2/3        Commonly reported   outlet_a     An officer sustained minor injuries...
+C05     1/3        Single-outlet       b, c         A rally took place in downtown square...
 ```
 
-Multiple similar sentences from the same article do not increase article-level coverage.
+Coverage measures **reporting frequency across the corpus**. It does not establish truth, and absence does not imply intentional omission.
 
-This allows `news-deframe` to move beyond pairwise omissions and examine how widely each claim appears across an entire corpus.
+## Actor Framing by Outlet
 
-## Consensus / Outlier View
-
-Claim clusters are classified by their coverage across the analysed articles.
-
-For example:
+Rather than combining disparate metrics into cramped matrix cells, actor framing is presented in clean vertical blocks that separate **grammatical positioning** from **lexical actions**:
 
 ```text
-Widely shared        9/10
-Commonly reported    7/10
-Minority coverage    3/10
-Rare claim           1/10
+Actor: Police
+
+Outlet     Agent     Patient     Role observations
+a          1.00       0.00              13
+b          0.85       0.15              13
+c          0.93       0.07              14
+
+Associated actions:
+  a: arrest, state, note, demand
+  b: arrest, require, state, obstruct
+  c: require, investigate, arrest
 ```
 
-The report also identifies outlets where a claim is absent.
-
-These categories measure **coverage frequency only**.
-
-`1/10` means that one analysed article contains the claim. It does not mean the claim is false.
-
-Likewise, `10/10` means every analysed article contains the claim. It does not independently verify that claim.
-
-## Entity × Outlet Framing Matrix
-
-The entity matrix compares how important entities are grammatically positioned across outlets.
-
-It can examine signals such as:
-
-* total mentions;
-* appearances as subject or agent;
-* appearances as object or patient;
-* passive constructions;
-* associated actions and verbs;
-* associated modifiers;
-* normalized agent and patient ratios.
-
-Conceptually:
-
-```text
-                    Outlet A    Outlet B    Outlet C
-
-Police
-  Agent ratio          0.72        0.31        0.55
-  Patient ratio        0.08        0.29        0.12
-
-Protesters
-  Agent ratio          0.61        0.24        0.40
-  Patient ratio        0.19        0.67        0.38
-```
-
-These measurements describe grammatical positioning. They do not by themselves establish an outlet's attitude toward an entity.
+* **Agent / Patient ratios** describe how an actor is grammatically positioned when appearing in extracted clause roles (`agent / (agent + patient)`).
+* **Associated actions** list the specific verbs tied to the actor across each outlet.
+* Top actors are ranked deterministically by cross-outlet importance.
 
 ## Framing Clusters
 
-Articles can be grouped according to similarities in their structural framing profiles.
+Articles are grouped by unsupervised structural feature similarity (syntactic voice, agency/patient distributions, entity density, and claim participation).
 
-Signals may include:
+* Clusters are assigned neutral labels (`Framing Cluster 1`, `Framing Cluster 2`).
+* When each article forms a separate cluster in small corpora, a neutral notice is displayed.
+* Numerical centroid vectors are accessible via `--verbose` or `--format json`.
 
-* claim coverage;
-* entity agency patterns;
-* entity patient patterns;
-* passive voice usage;
-* entity distributions;
-* sentence-level structural features.
+## Research Interpretation Notes
 
-Clusters receive neutral identifiers:
-
-```text
-Framing Cluster 1
-Framing Cluster 2
-Framing Cluster 3
-```
-
-No political or ideological meaning is automatically assigned to a cluster.
+Every report concludes with concise methodology reminders:
+* Claim coverage reflects reporting frequency across outlets, not factual verification.
+* Absence of a claim indicates a reporting difference, not intentional omission.
+* Agent/patient ratios describe grammatical positioning in extracted clauses.
+* Framing clusters group articles by structural feature similarity only.
 
 ---
 
@@ -388,6 +405,7 @@ news-deframe/
 │   ├── test_article_loader.py
 │   ├── test_analysis.py
 │   ├── test_cli_analyze.py
+│   ├── test_event_console_formatter.py
 │   └── test_corpora.py
 ├── src/
 │   └── news_deframe/
