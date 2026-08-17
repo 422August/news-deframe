@@ -1,4 +1,5 @@
 # news-deframe
+<img width="1891" height="943" alt="image" src="https://github.com/user-attachments/assets/fade3e2c-cf13-4a48-91d4-9eaa2f39008b" />
 
 > **Structural comparison of how news outlets frame the same event.**
 
