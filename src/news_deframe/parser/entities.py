@@ -130,6 +130,12 @@ def _is_valid_entity(ent: "Span | str") -> bool:
         if any(getattr(token, "pos_", None) in _INVALID_ENTITY_POS for token in ent):
             return False
 
+        # Reject spans whose syntactic root is an adjective or adverb.
+        # These are never event participants; they indicate NER mislabelling.
+        root_pos = getattr(ent.root, "pos_", None)
+        if root_pos in {"ADJ", "ADV"}:
+            return False
+
     # 首尾字元虛詞與動作字首防護
     if _is_cjk(text[0]) and text[0] in _ZH_VERB_PREFIX_CHARS:
         return False
@@ -137,6 +143,7 @@ def _is_valid_entity(ent: "Span | str") -> bool:
         return False
 
     return True
+
 
 
 def _collect_children_modifiers(

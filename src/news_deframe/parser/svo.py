@@ -69,10 +69,50 @@ _EN_PASSIVE_DEP_MARKERS: frozenset[str] = frozenset(
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _collect_span_text(token: Token) -> str:
-    """Return the full noun phrase / subtree text for a dependency head token."""
+# POS tags that are acceptable as the syntactic head of a participant span.
+# A span headed by ADJ, VERB, ADV, or function words cannot be an event participant.
+_PARTICIPANT_HEAD_POS: frozenset[str] = frozenset(
+    {"NOUN", "PROPN", "PRON", "NUM", "X"}
+)
+
+
+def _is_participant_head(token: Token) -> bool:
+    """Return True when *token* is a POS-valid head for a participant span.
+
+    Rejects adjectives, verbs, adverbs, and function words as argument heads,
+    because these cannot represent event participants.
+    """
+    return token.pos_ in _PARTICIPANT_HEAD_POS
+
+
+def _collect_participant_span(token: Token) -> str | None:
+    """Return the participant span text for a dependency head token, or None.
+
+    Returns None when the head token's POS indicates it cannot be an event
+    participant (e.g. adjective, verb, adverb).
+
+    Uses the full subtree of the head token (same as the original
+    _collect_span_text) to preserve complete NPs like 約兩百名民眾.
+    The POS gate on the head is the primary quality filter; subtree inclusion
+    is left to the actor resolution validation stage (surface length, etc.).
+    """
+    if not _is_participant_head(token):
+        return None
+
     subtree_tokens = sorted(token.subtree, key=lambda t: t.i)
     return "".join(t.text_with_ws for t in subtree_tokens).strip()
+
+
+
+_PASSIVE_SUBJ_DEPS: frozenset[str] = frozenset(
+    {"nsubjpass", "csubjpass", "nsubj:pass", "csubj:pass"}
+)
+
+_ACTIVE_SUBJ_DEPS: frozenset[str] = frozenset({"nsubj", "csubj"})
+
+_CLAUSE_DEPS: frozenset[str] = frozenset(
+    {"ccomp", "conj", "advcl", "xcomp", "acl", "relcl"}
+)
 
 
 def _detect_lang_from_text(text: str) -> Lang:
@@ -88,22 +128,24 @@ def _detect_lang_from_text(text: str) -> Lang:
 
 
 def _detect_passive_zh(verb_token: Token, sent: Span) -> tuple[bool, list[str]]:
-    """Chinese passive detection: character markers + dep tags."""
+    """Chinese passive detection: character markers + dep tags on the verb / clause."""
     markers: list[str] = []
 
+    # 1. The verb itself is a passive/receptive predicate (e.g. 被, 遭, 遭到, 受到)
+    if verb_token.text in {"被", "遭", "遭到", "受到"} or any(
+        verb_token.text.startswith(c) for c in {"被", "遭", "遭到", "受到"}
+    ):
+        markers.append(verb_token.text)
+
+    # 2. Check direct children (excluding subordinate clauses / conjunctions)
     for child in verb_token.children:
-        # dep-based markers
+        if child.dep_ in _CLAUSE_DEPS:
+            continue
         if child.dep_ in _ZH_PASSIVE_DEP_MARKERS or "pass" in child.dep_:
             markers.append(child.text)
-        # surface character markers
-        if child.text in _ZH_PASSIVE_CHARS:
+        elif child.text in {"被", "遭", "由", "经", "為"}:
             if child.text not in markers:
                 markers.append(child.text)
-
-    # Scan raw sentence for pre-verb passive characters
-    for char in _ZH_PASSIVE_CHARS:
-        if char in sent.text and char not in markers:
-            markers.append(char)
 
     return bool(markers), markers
 
@@ -172,22 +214,71 @@ def extract_svo(doc: Doc, lang: Lang | None = None) -> list[SVORecord]:
             continue
 
         for verb in verb_tokens:
-            subjects: list[str] = []
+            is_passive, voice_markers = _detect_passive(verb, sent, resolved_lang)
+
+            pass_subjs: list[str] = []
+            act_subjs: list[str] = []
             objects: list[str] = []
 
             for child in verb.children:
-                if child.dep_ in _SUBJECT_DEPS:
-                    subjects.append(_collect_span_text(child))
+                if child.dep_ in _PASSIVE_SUBJ_DEPS:
+                    span = _collect_participant_span(child)
+                    if span:
+                        pass_subjs.append(span)
+                elif child.dep_ in _ACTIVE_SUBJ_DEPS:
+                    span = _collect_participant_span(child)
+                    if span:
+                        act_subjs.append(span)
                 elif child.dep_ in _OBJECT_DEPS:
-                    objects.append(_collect_span_text(child))
+                    span = _collect_participant_span(child)
+                    if span:
+                        objects.append(span)
+                elif child.dep_ in {"agent"} or (child.dep_ == "prep" and child.lemma_ == "by"):
+                    # Prepositional agent in English passive: "arrested by the police"
+                    for grandchild in child.children:
+                        if grandchild.dep_ in _OBJECT_DEPS:
+                            span = _collect_participant_span(grandchild)
+                            if span:
+                                objects.append(span)
 
-            # Inherit subjects from head verb in conjunction chains
+            subjects: list[str] = []
+            if is_passive:
+                # If there are explicit passive subjects (nsubjpass), they are subjects (logical patients).
+                # Any active subject (nsubj) in this passive clause is the agent -> put in objects.
+                if pass_subjs and act_subjs:
+                    subjects.extend(pass_subjs)
+                    objects.extend(act_subjs)
+                elif pass_subjs:
+                    subjects.extend(pass_subjs)
+                else:
+                    subjects.extend(act_subjs)
+            else:
+                subjects.extend(act_subjs or pass_subjs)
+
+            # Inherit subjects from head verb in conjunction chains or complement of 遭
             if not subjects and verb.head != verb:
-                for sibling in verb.head.children:
-                    if sibling.dep_ in _SUBJECT_DEPS:
-                        subjects.append(_collect_span_text(sibling))
+                if verb.head.text in {"遭", "遭到"} and verb.dep_ in {"ccomp", "xcomp"}:
+                    for sib in verb.head.children:
+                        if sib.dep_ in _ACTIVE_SUBJ_DEPS or sib.dep_ in _PASSIVE_SUBJ_DEPS:
+                            span = _collect_participant_span(sib)
+                            if span and span not in objects:
+                                objects.append(span)
+                else:
+                    for sibling in verb.head.children:
+                        if sibling.dep_ in _SUBJECT_DEPS:
+                            span = _collect_participant_span(sibling)
+                            if span:
+                                subjects.append(span)
 
-            is_passive, voice_markers = _detect_passive(verb, sent, resolved_lang)
+            # If verb is ccomp of 遭 (e.g. 遭警方逮捕):
+            # verb.head (遭) has subject '參與者' (patient). If verb has subject '警方' (agent),
+            # then '參與者' is the logical patient (object) of verb!
+            if verb.head != verb and verb.head.text in {"遭", "遭到"} and verb.dep_ in {"ccomp", "xcomp"}:
+                for sib in verb.head.children:
+                    if sib.dep_ in _ACTIVE_SUBJ_DEPS or sib.dep_ in _PASSIVE_SUBJ_DEPS:
+                        span = _collect_participant_span(sib)
+                        if span and span not in objects:
+                            objects.append(span)
 
             records.append(
                 SVORecord(
@@ -201,6 +292,7 @@ def extract_svo(doc: Doc, lang: Lang | None = None) -> list[SVORecord]:
             )
 
     return records
+
 
 
 def passive_ratio(records: list[SVORecord]) -> float:

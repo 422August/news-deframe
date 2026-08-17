@@ -125,21 +125,24 @@ def render_event_analysis(analysis: EventAnalysis, *, console: Console | None = 
         c.print(con_table)
 
     # ── Entity × Outlet Framing ──────────────────────────────────────────────
-    c.rule("[bold]Entity \u00d7 Outlet Framing[/bold]")
+    c.rule("[bold]Entity × Outlet Framing[/bold]")
     matrix = analysis.entity_outlet_matrix
     if not matrix.entity_names or not matrix.article_ids:
         c.print("[dim]No entity framing data.[/dim]")
     else:
         em_table = Table(
-            title="Agent ratio  |  Patient ratio  (subject / total, object / total)",
+            title=(
+                "Agent ratio | Patient ratio  "
+                "(denom = agent+patient role occurrences; ordered by cross-outlet importance)"
+            ),
             box=box.ROUNDED,
             show_header=True,
             header_style="bold magenta",
             expand=True,
         )
-        em_table.add_column("Entity", style="bold", min_width=18)
+        em_table.add_column("Actor", style="bold", min_width=18)
         for aid in matrix.article_ids:
-            em_table.add_column(aid, justify="center", min_width=12)
+            em_table.add_column(aid, justify="center", min_width=14)
 
         # Map (entity, article) -> profile
         profile_map = {
@@ -151,9 +154,15 @@ def render_event_analysis(analysis: EventAnalysis, *, console: Console | None = 
             for aid in matrix.article_ids:
                 profile = profile_map.get((entity_name, aid))
                 if profile and profile.total_mentions > 0:
-                    cells.append(
-                        f"ag {profile.agent_ratio:.2f}\npt {profile.patient_ratio:.2f}"
+                    ag_verbs = (
+                        " ".join(profile.associated_verbs[:2])
+                        if profile.associated_verbs
+                        else ""
                     )
+                    cell = f"ag {profile.agent_ratio:.2f}\npt {profile.patient_ratio:.2f}"
+                    if ag_verbs:
+                        cell += f"\n[dim]{ag_verbs}[/dim]"
+                    cells.append(cell)
                 else:
                     cells.append("[dim]\u2014[/dim]")
             em_table.add_row(entity_name, *cells)
