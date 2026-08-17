@@ -65,6 +65,16 @@ _EN_PASSIVE_DEP_MARKERS: frozenset[str] = frozenset(
     {"aux:pass", "nsubj:pass", "csubj:pass", "auxpass", "nsubjpass", "agent"}
 )
 
+_PASSIVE_SUBJ_DEPS: frozenset[str] = frozenset(
+    {"nsubjpass", "csubjpass", "nsubj:pass", "csubj:pass"}
+)
+
+_ACTIVE_SUBJ_DEPS: frozenset[str] = frozenset({"nsubj", "csubj"})
+
+_CLAUSE_DEPS: frozenset[str] = frozenset(
+    {"ccomp", "conj", "advcl", "xcomp", "acl", "relcl"}
+)
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -75,6 +85,62 @@ _PARTICIPANT_HEAD_POS: frozenset[str] = frozenset(
     {"NOUN", "PROPN", "PRON", "NUM", "X"}
 )
 
+_VALID_NOMINAL_DEPS: frozenset[str] = frozenset(
+    {
+        "compound",
+        "compound:nn",
+        "nmod",
+        "nummod",
+        "clf",
+        "mark:clf",
+        "det",
+        "amod",
+        "poss",
+        "nmod:poss",
+        "flat",
+        "conj",
+        "cc",
+        "appos",
+    }
+)
+
+_PRUNE_DEPS: frozenset[str] = frozenset(
+    {
+        "relcl",
+        "acl",
+        "advcl",
+        "ccomp",
+        "xcomp",
+        "csubj",
+        "csubjpass",
+        "nmod:tmod",
+        "obl:tmod",
+        "advmod",
+        "prep",
+        "obl:loc",
+        "punct",
+    }
+)
+
+_TEMPORAL_MODIFIERS: frozenset[str] = frozenset(
+    {
+        "昨日", "今日", "明天", "傍晚", "晚間", "上午", "下午", "期間",
+        "當時", "日前", "過去", "近期", "動期", "初期",
+        "yesterday", "today", "tomorrow", "morning", "evening", "period",
+    }
+)
+
+
+def _is_temporal_token(tok: Token) -> bool:
+    """Return True if *tok* is a temporal noun or modifier."""
+    text = getattr(tok, "text", "")
+    dep = getattr(tok, "dep_", "")
+    if text in _TEMPORAL_MODIFIERS or dep in {"nmod:tmod", "obl:tmod"}:
+        return True
+    if any(text.endswith(s) for s in ("期間", "傍晚", "晚間", "上午", "下午", "昨日", "日前")):
+        return True
+    return False
+
 
 def _is_participant_head(token: Token) -> bool:
     """Return True when *token* is a POS-valid head for a participant span.
@@ -82,37 +148,53 @@ def _is_participant_head(token: Token) -> bool:
     Rejects adjectives, verbs, adverbs, and function words as argument heads,
     because these cannot represent event participants.
     """
-    return token.pos_ in _PARTICIPANT_HEAD_POS
+    return getattr(token, "pos_", "") in _PARTICIPANT_HEAD_POS
 
 
 def _collect_participant_span(token: Token) -> str | None:
     """Return the participant span text for a dependency head token, or None.
 
-    Returns None when the head token's POS indicates it cannot be an event
-    participant (e.g. adjective, verb, adverb).
-
-    Uses the full subtree of the head token (same as the original
-    _collect_span_text) to preserve complete NPs like 約兩百名民眾.
-    The POS gate on the head is the primary quality filter; subtree inclusion
-    is left to the actor resolution validation stage (surface length, etc.).
+    Preserves meaningful noun phrases while structurally excluding unrelated
+    temporal material, locative material, clausal material, and predicates.
     """
     if not _is_participant_head(token):
         return None
 
-    subtree_tokens = sorted(token.subtree, key=lambda t: t.i)
-    return "".join(t.text_with_ws for t in subtree_tokens).strip()
+    collected_tokens = []
 
+    def walk(tok: Token) -> None:
+        collected_tokens.append(tok)
+        for child in getattr(tok, "children", []):
+            cdep = getattr(child, "dep_", "")
+            cpos = getattr(child, "pos_", "")
+            if cdep in _PRUNE_DEPS:
+                continue
+            if _is_temporal_token(child):
+                continue
+            if cpos in {"VERB", "PUNCT", "ADP", "SCONJ"} and cdep != "mark:clf":
+                continue
+            if cdep in _VALID_NOMINAL_DEPS:
+                walk(child)
 
+    walk(token)
 
-_PASSIVE_SUBJ_DEPS: frozenset[str] = frozenset(
-    {"nsubjpass", "csubjpass", "nsubj:pass", "csubj:pass"}
-)
+    # Fallback to subtree if mock token or explicitly defined subtree without children generator
+    if len(collected_tokens) <= 1 and hasattr(token, "subtree") and token.subtree:
+        subtree_list = [
+            t for t in token.subtree
+            if getattr(t, "pos_", "") not in {"PUNCT", "VERB", "ADP"}
+            and not _is_temporal_token(t)
+        ]
+        if len(subtree_list) > 1:
+            collected_tokens = subtree_list
 
-_ACTIVE_SUBJ_DEPS: frozenset[str] = frozenset({"nsubj", "csubj"})
+    sorted_toks = sorted(set(collected_tokens), key=lambda t: getattr(t, "i", 0))
+    span_text = "".join(getattr(t, "text_with_ws", getattr(t, "text", "") + " ") for t in sorted_toks).strip()
 
-_CLAUSE_DEPS: frozenset[str] = frozenset(
-    {"ccomp", "conj", "advcl", "xcomp", "acl", "relcl"}
-)
+    # Clean trailing/leading particles
+    import re
+    span_text = re.sub(r"[的之]+$", "", span_text).strip()
+    return span_text or None
 
 
 def _detect_lang_from_text(text: str) -> Lang:
@@ -280,10 +362,19 @@ def extract_svo(doc: Doc, lang: Lang | None = None) -> list[SVORecord]:
                         if span and span not in objects:
                             objects.append(span)
 
+            from news_deframe.parser.predicate_normalization import normalize_predicate_text
+
+            norm_verb = normalize_predicate_text(
+                verb.lemma_ or verb.text,
+                sentence=sent.text,
+                head_token=verb,
+                lang=resolved_lang,
+            )
+
             records.append(
                 SVORecord(
                     sentence=sent.text.strip(),
-                    verb=verb.lemma_ or verb.text,
+                    verb=norm_verb or verb.lemma_ or verb.text,
                     subjects=subjects,
                     objects=objects,
                     is_passive=is_passive,

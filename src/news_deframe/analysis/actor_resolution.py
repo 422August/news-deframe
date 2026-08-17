@@ -45,8 +45,6 @@ from pydantic import BaseModel, Field
 from news_deframe.schemas import ParsedArticle
 
 
-# -- NER label sets -----------------------------------------------------------
-
 # Labels that represent human-scale actors or structured social entities.
 _ACTOR_NER_LABELS: frozenset[str] = frozenset(
     {"PERSON", "PER", "ORG", "GPE", "NORP", "FAC", "LOC"}
@@ -75,6 +73,8 @@ _NON_ACTOR_NER_LABELS: frozenset[str] = frozenset(
 # spaCy non-actor NER labels (excludes synthetic modifier tags like EVENT_NOUN)
 _SPACY_NON_ACTOR_NER_LABELS: frozenset[str] = frozenset(
     {
+        "FAC",
+        "LOC",
         "CARDINAL",
         "DATE",
         "TIME",
@@ -89,6 +89,31 @@ _SPACY_NON_ACTOR_NER_LABELS: frozenset[str] = frozenset(
         "EVENT",
     }
 )
+
+_STRUCTURAL_NON_ACTOR_ENDINGS = (
+    # Locations / Spatial relators
+    "現場", "廣場", "區域", "道路", "外圍", "範圍", "附近", "方向", "路", "街", "館", "樓", "處", "市中心",
+    "廠", "中心", "園區", "保護區", "基地", "變電所", "所", "站",
+    "street", "square", "road", "avenue", "area", "direction", "zone", "district", "place", "site", "venue",
+    "station", "facility", "center", "plant", "base", "park",
+    # Events / Actions / Processes
+    "活動", "示威", "集會", "推擠", "衝突", "逮捕", "行動", "勤務", "調查", "過程", "經過", "情形", "事件",
+    "protest", "rally", "demonstration", "clash", "arrest", "process", "investigation", "procedure", "incident", "operation",
+    # Abstract concepts / states / injuries / outcomes / media
+    "計畫", "規定", "秩序", "意見", "權利", "說法", "方式", "資料", "影像", "畫面", "支援", "溝通", "擦傷", "大礙", "傷勢", "完整", "片段",
+    "plan", "rule", "order", "opinion", "right", "statement", "method", "data", "footage", "image", "injury", "scratch", "support",
+)
+
+_STRUCTURAL_ACTOR_ENDINGS = (
+    "者", "人", "員", "團體", "警方", "局", "署", "黨", "隊", "眾", "群", "部", "府", "院", "師", "官", "單位", "當局", "雙方", "彼此",
+    "police", "officers", "protesters", "demonstrators", "organizers", "witnesses", "citizens", "crowd",
+    "authorities", "government", "council", "department", "court", "union", "spokesperson", "guard", "guards",
+    "body", "team", "corps", "agency", "group",
+)
+
+_UNACCUSATIVE_LOCATIVE_VERBS = frozenset({
+    "發生", "舉行", "happen", "occur", "take place"
+})
 
 
 
@@ -449,25 +474,33 @@ def _validate_actor(
 ) -> bool:
     """Apply multi-signal actor validation.
 
-    NER-backed candidates (S1):
-        Require S1 plus at least one other signal (S2, S3, S4, or S5).
-
-    SVO-only candidates (no S1):
-        Require at least three other signals (S2, S3, S4, S5).
-        This compensates for absence of NER evidence, reducing noise from
-        parser artifacts that appear as SVO arguments.
-
-    Signals
-    -------
-    S1 -- NER type in _ACTOR_NER_LABELS
-    S2 -- Participates in >= 1 SVO subject/object slot
-    S3 -- Appears in > 1 article in the corpus
-    S4 -- Has >= 1 associated action verb (SVO-grounded)
-    S5 -- Has >= 2 total SVO-grounded mentions
+    Combines:
+    - Structural morphology & non-actor semantic category discrimination
+    - Role-grounded verb transitivity
+    - NER label signals
+    - Cross-outlet recurrence
     """
     if not _is_valid_surface(surface):
         return False
     if ner_type in _NON_ACTOR_NER_LABELS:
+        return False
+
+    s_lower = surface.strip().lower()
+
+    # Structural non-actor check (locations, events, actions, abstract concepts, injuries)
+    if any(s_lower.endswith(na) for na in _STRUCTURAL_NON_ACTOR_ENDINGS):
+        if not any(s_lower.endswith(a) for a in _STRUCTURAL_ACTOR_ENDINGS):
+            return False
+
+    # Broken clausal / parser fragments check
+    if any(c in s_lower for c in ("對", "憑", "難", "均", "間", "離開", "突破", "依照", "服從", "並")):
+        if not any(s_lower.endswith(a) for a in _STRUCTURAL_ACTOR_ENDINGS):
+            return False
+
+    # Check unaccusative locative verbs:
+    # If candidate only ever appears as subject of 發生 / 舉行 without other actions, reject as setting
+    verbs = [m.verb for m in mentions if m.verb]
+    if verbs and all(v in _UNACCUSATIVE_LOCATIVE_VERBS for v in verbs) and ner_type not in {"PERSON", "PER", "ORG", "NORP"}:
         return False
 
     s1 = ner_type in _ACTOR_NER_LABELS
@@ -476,11 +509,17 @@ def _validate_actor(
     s4 = any(m.verb for m in mentions)
     s5 = len(mentions) >= 2
 
-    score = sum([s1, s2, s3, s4, s5])
+    # Check actor morphology
+    has_actor_morphology = any(s_lower.endswith(a) for a in _STRUCTURAL_ACTOR_ENDINGS) or any(
+        w.endswith(("er", "ers", "or", "ors", "ist", "ists", "ant", "ants", "ian", "ians", "men", "women"))
+        for w in s_lower.split()
+    )
+
+    score = sum([s1, s2, s3, s4, s5, has_actor_morphology])
 
     if s1 and score >= 2:
         return True
-    if not s1 and score >= 3:
+    if not s1 and (has_actor_morphology or score >= 3):
         return True
 
     return False
@@ -575,6 +614,14 @@ def _should_merge(surface_a: str, type_a: str, surface_b: str, type_b: str) -> b
     # Abbreviation relationship
     if _is_abbreviation_of(surface_a, surface_b) or _is_abbreviation_of(surface_b, surface_a):
         return True
+
+    # Suffix / head noun match for Chinese compounds & English phrases
+    for suffix in (
+        "警方", "人員", "警員", "參與者", "示威者", "被捕者", "目擊者", "團體", "民眾", "群眾", "政府", "當局",
+        "protesters", "demonstrators", "officers", "citizens", "witnesses", "police", "guards"
+    ):
+        if key_a.endswith(suffix) and key_b.endswith(suffix):
+            return True
 
     return False
 

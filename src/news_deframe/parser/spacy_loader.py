@@ -108,8 +108,22 @@ def get_nlp_for_lang(lang: Lang) -> "Language":
         model_name = ZH_MODEL if lang == "zh" else EN_MODEL
         try:
             import spacy  # lazy import – spacy not required at module load time
+            from spacy.language import Language
 
-            _cache[lang] = spacy.load(model_name)
+            try:
+                @Language.component("news_deframe_sentencizer")
+                def _custom_sentence_boundaries(doc):
+                    for i, token in enumerate(doc[:-1]):
+                        if token.text in {"。", "！", "？", "!", "?", "…"} or "\n" in token.text_with_ws:
+                            doc[i + 1].is_sent_start = True
+                    return doc
+            except ValueError:
+                pass
+
+            loaded = spacy.load(model_name)
+            if "news_deframe_sentencizer" not in loaded.pipe_names and "parser" in loaded.pipe_names:
+                loaded.add_pipe("news_deframe_sentencizer", before="parser")
+            _cache[lang] = loaded
         except ImportError as exc:
             raise RuntimeError(
                 "spaCy is not installed. Install it with:\n\n"
