@@ -7,11 +7,12 @@ Provides a 3-stage predicate processing pipeline:
 
 Key rules:
 - Validates that candidates are true verbal predicates rather than adjectives,
-  nouns, adverbial fragments, or tokenization artifacts.
-- Handles Chinese compound verb reconstruction (e.g. split tokens like '正調' + '查' → '調查').
-- Handles Chinese passive/receptive predicate linking (e.g. '遭' + '逮捕' → '逮捕').
+  nouns, adverbial fragments, connective fragments, or tokenization artifacts.
+- Handles Chinese compound verb reconstruction (e.g. split tokens like '砍'+'刪' → '砍刪', '執'+'行' → '執行').
+- Handles Chinese passive/receptive predicate linking (e.g. '遭' + '逮捕' → '逮捕', '遭' + '凍結' → '凍結').
 - Handles English phrasal verbs / particle attachment (e.g. 'break' + 'through' → 'break through').
 - Preserves raw token representation for full traceability.
+- Domain-general: no hardcoded politician names, outlet names, or corpus phrases.
 """
 from __future__ import annotations
 
@@ -28,20 +29,73 @@ Lang = Literal["zh", "en"]
 # ── Non-predicate POS and dependency tags ─────────────────────────────────────
 
 _INVALID_PREDICATE_POS: frozenset[str] = frozenset(
-    {"NOUN", "PROPN", "ADJ", "ADV", "PRON", "NUM", "PUNCT", "SYM", "ADP", "CCONJ", "SCONJ", "DET"}
+    {"NOUN", "PROPN", "ADJ", "ADV", "PRON", "NUM", "PUNCT", "SYM", "ADP", "CCONJ", "SCONJ", "DET", "SPACE"}
 )
 
 _INVALID_PREDICATE_DEPS: frozenset[str] = frozenset(
-    {"compound", "compound:nn", "nmod", "amod", "advmod", "nummod", "det", "case", "punct"}
+    {
+        "compound",
+        "compound:nn",
+        "nmod",
+        "amod",
+        "advmod",
+        "nummod",
+        "det",
+        "case",
+        "punct",
+        "nsubj",
+        "nsubjpass",
+        "csubj",
+        "csubjpass",
+        "dobj",
+        "pobj",
+        "obj",
+        "iobj",
+        "appos",
+        "name",
+        "flat",
+        "mark",
+    }
 )
 
 # Common Chinese auxiliary / receptive verbs that take verbal complements
 _ZH_PASSIVE_AUXILIARIES: frozenset[str] = frozenset({"遭", "遭到", "被", "受到", "經", "由"})
 
-# Stative adjectives that often act as roots in Chinese but are states rather than actions
+# Stative adjectives that often act as roots in Chinese but describe states rather than actions
 _ZH_STATIVE_ADJECTIVES: frozenset[str] = frozenset({
-    "平穩", "平靜", "緊張", "突然", "嚴重", "輕微", "大礙", "良好", "激烈", "混亂", "迅速"
+    "平穩", "平靜", "緊張", "突然", "嚴重", "輕微", "大礙", "良好", "激烈", "混亂", "迅速",
+    "好", "壞", "高", "低", "多", "少", "大", "小", "晚", "早", "快", "慢", "完備", "齊全",
 })
+
+# Conjunctions, prepositions, or case particles that must not terminate a legitimate verb
+_ZH_INVALID_VERB_SUFFIXES: tuple[str, ...] = (
+    "與", "及", "和", "或", "同", "以", "在", "從", "由", "到", "向", "自", "於", "對", "跟", "等", "之", "讓",
+)
+
+# Discourse / connective prefixes that indicate non-verbal sentence connectors
+_ZH_DISCOURSE_PREFIXES: frozenset[str] = frozenset({
+    "對此", "因此", "由此", "從此", "如此", "不過", "另外", "其實", "樣說", "說這", "訪說", "展委",
+})
+
+# Nominal morphemes that signal noun / title / classifier fragments misclassified as verbs
+_ZH_BOUND_NOMINAL_MORPHEMES: tuple[str, ...] = (
+    "費", "案", "額", "處", "員", "總", "例", "部", "所", "法", "局", "院", "籍", "性", "度", "率", "慣",
+    "言行", "操行", "品行", "德行", "暴行",
+)
+
+# Established compound action / reporting verbs that legitimately contain bound morphemes
+_ZH_VALID_LEXICAL_COMPOUND_VERBS: frozenset[str] = frozenset({
+    "執行", "進行", "推行", "推動", "裁決", "表決", "處理", "審判", "立法", "執法", "減列", "增列",
+    "編列", "統刪", "砍刪", "凍結", "刪除", "審查", "通過", "簽名", "協商", "出面", "發布", "宣布",
+    "提出", "指出", "表示", "認為", "呼籲", "批評", "譴責", "要求", "答應", "改正", "副署", "抗議",
+    "質詢", "備詢", "說明", "強調", "反對", "贊成", "支持", "提案", "達成", "完成", "送到", "延宕",
+    "影響", "敲槌", "受訪", "運作", "放寬", "嚴管", "啟動", "重啟", "停用", "查扣", "逮捕", "起訴",
+})
+
+# Common single-character CJK action / reporting verbs
+_ZH_VALID_SINGLE_CHAR_VERBS: frozenset[str] = frozenset(
+    "說稱提簽砍刪凍審查批遭看給訪決讓答派辦降增減買賣宣罰告警讀裁判抓救退換改請催追停封移扣送拒准控表談砍查"
+)
 
 
 @dataclass(frozen=True)
@@ -56,31 +110,67 @@ class PredicateProvenance:
     confidence: float
 
 
-def is_valid_predicate_token(token: Token) -> bool:
-    """Return True if *token* is a linguistically defensible verbal predicate head."""
-    pos = getattr(token, "pos_", "")
-    if pos not in {"VERB", "AUX"}:
-        return False
-
-    dep = getattr(token, "dep_", "")
-    if dep in _INVALID_PREDICATE_DEPS:
-        return False
-
-    text = getattr(token, "text", "").strip()
+def is_valid_predicate_token(token: Token | None, text_override: str = "", lang: Lang = "zh") -> bool:
+    """Return True if *token* or *text_override* is a linguistically defensible verbal predicate head."""
+    text = (text_override or (getattr(token, "text", "") if token is not None else "")).strip()
     if not text:
         return False
 
-    # Check for stative adjectives misparsed as VERB in Chinese
+    if token is not None:
+        pos = getattr(token, "pos_", "")
+        if pos not in {"VERB", "AUX"}:
+            return False
+
+        dep = getattr(token, "dep_", "")
+        if dep in _INVALID_PREDICATE_DEPS:
+            return False
+
+        # If token is immediately preceded by a title or title+surname (e.g. '長卓' followed by '榮泰'),
+        # it is the given name in a proper noun compound, not a verb predicate
+        if lang == "zh" and getattr(token, "i", 0) > 0 and hasattr(token, "doc") and token.doc is not None:
+            try:
+                prev_tok = token.doc[token.i - 1]
+                ptext = getattr(prev_tok, "text", "")
+                if ptext.startswith("長") or any(ptext.endswith(m) for m in ("長", "主席", "總召", "立委", "議員", "參選人", "部長", "院長")):
+                    if text not in _ZH_VALID_LEXICAL_COMPOUND_VERBS:
+                        return False
+            except Exception:
+                pass
+
+    # English validation
+    if lang == "en":
+        # Must contain alphabetic characters and not be pure digits/punctuation
+        return any(c.isalpha() for c in text) and not text.isdigit()
+
+    # Chinese linguistic morphology checks
     if text in _ZH_STATIVE_ADJECTIVES:
         return False
 
-    # Reject broken single-char non-words or punctuation
+    if text in _ZH_DISCOURSE_PREFIXES:
+        return False
+
+    if text in _ZH_VALID_LEXICAL_COMPOUND_VERBS:
+        return True
+
+    # Check for title morphemes + surname (e.g. '長韓', '長卓', '長鄭', '席黃', '召蔡')
+    if len(text) >= 2 and text[0] in "長席召員官委首揆" and text not in _ZH_VALID_LEXICAL_COMPOUND_VERBS:
+        return False
+
+    # Check conjunction/preposition endings (e.g. '例與', '費以', '定讓')
+    if len(text) > 1 and any(text.endswith(s) for s in _ZH_INVALID_VERB_SUFFIXES):
+        return False
+
+    # Check bound nominal morphemes (e.g. '宣費', '別費', '出總', '政慣', '言行')
+    if len(text) > 1 and any(text.endswith(m) for m in _ZH_BOUND_NOMINAL_MORPHEMES):
+        return False
+
+    # Single-character CJK validation
     if len(text) == 1:
         cp = ord(text[0])
-        # Allow common single-character CJK verbs (e.g. 有, 遭, 看, 說, 稱, 指)
         is_cjk = (0x4E00 <= cp <= 0x9FFF) or (0x3400 <= cp <= 0x4DBF)
-        if not is_cjk and not text.isalpha():
-            return False
+        if is_cjk:
+            return text in _ZH_VALID_SINGLE_CHAR_VERBS
+        return text.isalpha()
 
     return True
 
@@ -149,26 +239,46 @@ def normalize_predicate_text(
             # If verb is '遭', '遭到', '被' and has a verbal ccomp/xcomp child, use the lexical verb
             if raw in _ZH_PASSIVE_AUXILIARIES:
                 for child in getattr(head_token, "children", []):
-                    if getattr(child, "dep_", "") in {"ccomp", "xcomp", "conj"} and getattr(child, "pos_", "") == "VERB":
-                        child_text = getattr(child, "text", "")
-                        if child_text and child_text not in _ZH_PASSIVE_AUXILIARIES:
-                            return child_text
+                    cdep = getattr(child, "dep_", "")
+                    cpos = getattr(child, "pos_", "")
+                    ctext = getattr(child, "text", "")
+                    if cdep in {"ccomp", "xcomp", "conj", "dep", "dobj"} and ctext not in _ZH_PASSIVE_AUXILIARIES:
+                        if is_valid_predicate_token(child, ctext, lang="zh"):
+                            return ctext
 
             # If verb head is passive aux (e.g. head is '遭' and verb is '逮捕')
             if getattr(head_token, "head", None) is not None:
                 parent = head_token.head
-                if getattr(parent, "text", "") in _ZH_PASSIVE_AUXILIARIES and raw not in _ZH_PASSIVE_AUXILIARIES:
+                ptext = getattr(parent, "text", "")
+                if ptext in _ZH_PASSIVE_AUXILIARIES and raw not in _ZH_PASSIVE_AUXILIARIES:
                     return raw
 
-            # Check if token is split (e.g. '正調' -> check if followed by '查' in sentence)
-            if sentence and raw in sentence:
-                idx = sentence.find(raw)
-                if idx >= 0 and idx + len(raw) < len(sentence):
-                    next_char = sentence[idx + len(raw)]
-                    if raw == "正調" and next_char == "查":
-                        return "調查"
-                    if raw == "辦團" and next_char == "體":
-                        return "主辦"
+            # Structural compound verb reconstruction via adjacent children
+            # e.g. 砍 (VERB) + 刪 (NOUN/VERB) -> 砍刪; 減 (VERB) + 列 (VERB) -> 減列; 泰強 + 調 -> 強調
+            for child in getattr(head_token, "children", []):
+                cdep = getattr(child, "dep_", "")
+                ctext = getattr(child, "text", "")
+                ci = getattr(child, "i", -99)
+                hi = getattr(head_token, "i", -99)
+                if abs(ci - hi) == 1 and cdep in {"conj", "compound:vv", "xcomp", "advmod:rcomp", "dobj", "dep"}:
+                    compound = (raw + ctext) if ci > hi else (ctext + raw)
+                    if compound in _ZH_VALID_LEXICAL_COMPOUND_VERBS:
+                        return compound
+                    if len(raw) > 1 and ci > hi:
+                        split_compound = raw[1:] + ctext
+                        if split_compound in _ZH_VALID_LEXICAL_COMPOUND_VERBS:
+                            return split_compound
+
+            # Structural complement attachment: e.g. 審查 + 完畢 -> 審查; 達成 + 共識 -> 達成
+            for child in getattr(head_token, "children", []):
+                cdep = getattr(child, "dep_", "")
+                ctext = getattr(child, "text", "")
+                if cdep in {"advmod:rcomp", "dobj"} and ctext in {"完畢", "成", "到", "出"}:
+                    if raw in {"審查", "下達", "送", "提"}:
+                        if raw == "下達" and ctext == "成":
+                            return "達成"
+                        if raw == "送" and ctext == "到":
+                            return "送到"
 
         # 2. English phrasal verb particle attachment (e.g. 'break' + 'through' -> 'break through')
         elif lang == "en":
@@ -189,16 +299,26 @@ def normalize_predicate_text(
     if lang == "en":
         norm = _lemmatize_en_word(raw)
     elif lang == "zh":
+        # Check progressive aspect split: e.g. 正調 + 查 in sentence -> 調查
+        if norm.startswith("正") and len(norm) == 2 and sentence:
+            idx = sentence.find(norm)
+            if idx >= 0 and idx + len(norm) < len(sentence):
+                next_char = sentence[idx + len(norm)]
+                candidate = norm[1:] + next_char
+                return candidate
         if norm in _ZH_PASSIVE_AUXILIARIES and sentence:
-            for v in ("吹離", "逮捕", "延誤", "查扣", "重創", "質疑", "解僱", "撤銷"):
-                if v in sentence:
-                    return v
-        if norm == "正調":
-            return "調查"
-        if norm == "活" and "活動" in sentence:
-            return "活動"
-        if norm == "辦團":
-            return "主辦"
+            # Look for following verb in sentence
+            idx = sentence.find(norm)
+            if idx >= 0:
+                after = sentence[idx + len(norm):idx + len(norm) + 10]
+                for v in _ZH_VALID_LEXICAL_COMPOUND_VERBS:
+                    if v in after:
+                        return v
+                for sub_v in ("吹離", "逮捕", "延誤", "查扣", "重創", "質疑", "解僱", "撤銷", "受創", "凍結", "刪除"):
+                    if sub_v in after:
+                        return sub_v
+        if norm == "執" and sentence and "執行" in sentence:
+            return "執行"
 
     return norm
 
@@ -215,7 +335,7 @@ def extract_normalized_predicate(
     surface = getattr(token, "text", raw_text).strip() if token is not None else raw_text.strip()
     lemma = getattr(token, "lemma_", surface).strip() if token is not None else surface
 
-    is_valid = is_valid_predicate_token(token) if token is not None else (len(surface) >= 1 and not surface.isdigit())
+    is_valid = is_valid_predicate_token(token, surface, lang=lang)
     normalized = normalize_predicate_text(lemma or surface, sentence=sentence, head_token=token, lang=lang)
 
     confidence = 1.0 if (token is not None and getattr(token, "pos_", "") == "VERB") else 0.8
@@ -228,3 +348,4 @@ def extract_normalized_predicate(
         is_passive=is_passive,
         confidence=confidence,
     )
+

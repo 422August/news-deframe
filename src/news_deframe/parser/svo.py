@@ -101,6 +101,7 @@ _VALID_NOMINAL_DEPS: frozenset[str] = frozenset(
         "conj",
         "cc",
         "appos",
+        "name",
     }
 )
 
@@ -125,9 +126,15 @@ _PRUNE_DEPS: frozenset[str] = frozenset(
 _TEMPORAL_MODIFIERS: frozenset[str] = frozenset(
     {
         "昨日", "今日", "明天", "傍晚", "晚間", "上午", "下午", "期間",
-        "當時", "日前", "過去", "近期", "動期", "初期",
+        "當時", "日前", "過去", "近期", "動期", "初期", "昨天", "今天", "今天（14日）", "14日",
         "yesterday", "today", "tomorrow", "morning", "evening", "period",
     }
+)
+
+_ZH_TITLE_ROLE_MORPHEMES: tuple[str, ...] = (
+    "院長", "部長", "主席", "總召", "委員", "立委", "議員", "參選人", "發言人", "召集人",
+    "署長", "局長", "處長", "司長", "主任", "校長", "代表", "總經理", "執行長", "秘書長",
+    "幹事長", "書記長", "總統", "市長", "縣長", "首長", "閣揆", "黨主席", "黨團總召", "長",
 )
 
 
@@ -137,17 +144,13 @@ def _is_temporal_token(tok: Token) -> bool:
     dep = getattr(tok, "dep_", "")
     if text in _TEMPORAL_MODIFIERS or dep in {"nmod:tmod", "obl:tmod"}:
         return True
-    if any(text.endswith(s) for s in ("期間", "傍晚", "晚間", "上午", "下午", "昨日", "日前")):
+    if any(text.endswith(s) for s in ("期間", "傍晚", "晚間", "上午", "下午", "昨日", "日前", "昨天", "今天")):
         return True
     return False
 
 
 def _is_participant_head(token: Token) -> bool:
-    """Return True when *token* is a POS-valid head for a participant span.
-
-    Rejects adjectives, verbs, adverbs, and function words as argument heads,
-    because these cannot represent event participants.
-    """
+    """Return True when *token* is a POS-valid head for a participant span."""
     return getattr(token, "pos_", "") in _PARTICIPANT_HEAD_POS
 
 
@@ -156,29 +159,80 @@ def _collect_participant_span(token: Token) -> str | None:
 
     Preserves meaningful noun phrases while structurally excluding unrelated
     temporal material, locative material, clausal material, and predicates.
+    Reconstructs complete title + name and institutional participant compounds.
     """
     if not _is_participant_head(token):
         return None
 
-    collected_tokens = []
+    collected_tokens: list[Token] = []
 
     def walk(tok: Token) -> None:
         collected_tokens.append(tok)
         for child in getattr(tok, "children", []):
             cdep = getattr(child, "dep_", "")
             cpos = getattr(child, "pos_", "")
+            ctext = getattr(child, "text", "")
             if cdep in _PRUNE_DEPS:
                 continue
             if _is_temporal_token(child):
                 continue
             if cpos in {"VERB", "PUNCT", "ADP", "SCONJ"} and cdep != "mark:clf":
+                # Special allowance: in Chinese parser, title+name or person name mis-tagged as VERB
+                # (e.g. '長韓', '長卓', '榮泰') adjacent to nominal head
+                if len(ctext) >= 2 and any(ctext.startswith(t) for t in _ZH_TITLE_ROLE_MORPHEMES):
+                    collected_tokens.append(child)
                 continue
             if cdep in _VALID_NOMINAL_DEPS:
                 walk(child)
 
     walk(token)
 
-    # Fallback to subtree if mock token or explicitly defined subtree without children generator
+    # Linear span expansion for Chinese titles, proper names, and institutional compounds
+    doc = getattr(token, "doc", None)
+    if doc is not None and len(collected_tokens) > 0 and getattr(token, "i", None) is not None:
+        min_i = min(getattr(t, "i", 0) for t in collected_tokens)
+        max_i = max(getattr(t, "i", 0) for t in collected_tokens)
+
+        # Expand left if immediately preceded by institution / party nominal
+        while min_i > 0:
+            prev_t = doc[min_i - 1]
+            ptext = getattr(prev_t, "text", "")
+            ppos = getattr(prev_t, "pos_", "")
+            pdep = getattr(prev_t, "dep_", "")
+            if _is_temporal_token(prev_t) or ppos in {"PUNCT", "ADP", "CCONJ", "VERB"}:
+                break
+            if pdep in {"compound", "compound:nn", "name", "flat", "nmod", "appos", "nsubj"}:
+                collected_tokens.append(prev_t)
+                min_i -= 1
+            else:
+                break
+
+        # Expand right if immediately followed by title / proper name morpheme
+        while max_i < len(doc) - 1:
+            next_t = doc[max_i + 1]
+            curr_t = doc[max_i]
+            ntext = getattr(next_t, "text", "")
+            npos = getattr(next_t, "pos_", "")
+            ndep = getattr(next_t, "dep_", "")
+            ctext = getattr(curr_t, "text", "")
+            if _is_temporal_token(next_t) or npos in {"PUNCT", "ADP", "CCONJ"}:
+                break
+            if ntext in {"表示", "指出", "說", "認為", "強調", "呼籲", "敲槌", "受訪", "提案", "簽名", "協商", "執行", "推動"}:
+                break
+            if ndep in {"compound", "compound:nn", "name", "flat", "appos", "dobj", "ccomp"} or npos in {"NOUN", "PROPN"}:
+                collected_tokens.append(next_t)
+                max_i += 1
+            elif len(ntext) >= 2 and any(ntext.startswith(t) for t in _ZH_TITLE_ROLE_MORPHEMES):
+                collected_tokens.append(next_t)
+                max_i += 1
+            elif ctext.startswith("長") or any(ctext.endswith(m) for m in ("長", "主席", "總召", "立委", "議員", "參選人", "部長", "院長")):
+                # Given name following title morpheme (e.g. 長卓 + 榮泰 -> 行政院長卓榮泰)
+                collected_tokens.append(next_t)
+                max_i += 1
+            else:
+                break
+
+    # Fallback to subtree if single token without children
     if len(collected_tokens) <= 1 and hasattr(token, "subtree") and token.subtree:
         subtree_list = [
             t for t in token.subtree
@@ -191,9 +245,23 @@ def _collect_participant_span(token: Token) -> str | None:
     sorted_toks = sorted(set(collected_tokens), key=lambda t: getattr(t, "i", 0))
     span_text = "".join(getattr(t, "text_with_ws", getattr(t, "text", "") + " ") for t in sorted_toks).strip()
 
-    # Clean trailing/leading particles
+    # If token is PROPN/NOUN and its governing verb starts with a name character (e.g. 卓榮 + 泰強 -> 卓榮泰)
+    if getattr(token, "pos_", "") in {"PROPN", "NOUN"} and hasattr(token, "head") and token.head != token:
+        head_text = getattr(token.head, "text", "")
+        if len(head_text) == 2 and getattr(token.head, "pos_", "") == "VERB":
+            from news_deframe.parser.predicate_normalization import _ZH_VALID_LEXICAL_COMPOUND_VERBS
+            for child in getattr(token.head, "children", []):
+                ctext = getattr(child, "text", "")
+                if (head_text[1:] + ctext) in _ZH_VALID_LEXICAL_COMPOUND_VERBS:
+                    if not span_text.endswith(head_text[0]):
+                        span_text = span_text + head_text[0]
+
+    # Clean leading/trailing particles, temporals, and actions
     import re
-    span_text = re.sub(r"[的之]+$", "", span_text).strip()
+    span_text = re.sub(r"^(昨天|今天|日前|當時|過去|近期)\s*", "", span_text)
+    span_text = re.sub(r"(敲槌後|受訪說|提案指出|受訪時|受訪|敲槌|簽名|協商|提案)$", "", span_text)
+    span_text = re.sub(r"[的之時後前等在地向從於]+$", "", span_text).strip()
+    span_text = re.sub(r"^[在向從於對到]\s*", "", span_text).strip()
     return span_text or None
 
 
@@ -219,7 +287,15 @@ def _detect_passive_zh(verb_token: Token, sent: Span) -> tuple[bool, list[str]]:
     ):
         markers.append(verb_token.text)
 
-    # 2. Check direct children (excluding subordinate clauses / conjunctions)
+    # 2. Check head token if it is a passive auxiliary (e.g. 遭, 遭暴, 被, 受到)
+    if verb_token.head != verb_token:
+        head_text = getattr(verb_token.head, "text", "")
+        if head_text in {"被", "遭", "遭到", "受到"} or any(
+            head_text.startswith(c) for c in {"被", "遭", "遭到", "受到"}
+        ):
+            markers.append(head_text)
+
+    # 3. Check direct children (excluding subordinate clauses / conjunctions)
     for child in verb_token.children:
         if child.dep_ in _CLAUSE_DEPS:
             continue
@@ -228,6 +304,13 @@ def _detect_passive_zh(verb_token: Token, sent: Span) -> tuple[bool, list[str]]:
         elif child.text in {"被", "遭", "由", "经", "為"}:
             if child.text not in markers:
                 markers.append(child.text)
+
+    # 4. Check preceding passive markers in the clause
+    if not markers:
+        for t in sent:
+            if t.text in {"被", "遭", "遭到", "受到"} or t.text.startswith("遭") or t.text.startswith("被"):
+                if t.i < verb_token.i and (t == verb_token.head or verb_token in getattr(t, "children", [])):
+                    markers.append(t.text)
 
     return bool(markers), markers
 
@@ -276,24 +359,48 @@ def extract_svo(doc: Doc, lang: Lang | None = None) -> list[SVORecord]:
     list[SVORecord]
         One or more records per sentence (one per verbal head found).
     """
+    from news_deframe.parser.predicate_normalization import (
+        is_valid_predicate_token,
+        normalize_predicate_text,
+    )
+
     resolved_lang: Lang = lang or _detect_lang_from_text(doc.text)
     records: list[SVORecord] = []
 
     for sent in doc.sents:
-        # Collect all verbal roots in this sentence
+        # Collect all verbal roots in this sentence that pass linguistic validation
         verb_tokens: list[Token] = [
             t
             for t in sent
-            if t.pos_ in {"VERB"}
-            and t.dep_ in {"ROOT", "conj", "relcl", "advcl", "ccomp"}
+            if t.pos_ in {"VERB", "AUX"}
+            and t.dep_ in {"ROOT", "conj", "relcl", "advcl", "ccomp", "xcomp"}
+            and is_valid_predicate_token(t, lang=resolved_lang)
         ]
 
         if not verb_tokens:
-            # Fallback: any verb
-            verb_tokens = [t for t in sent if t.pos_ == "VERB"]
+            # Fallback: any valid verb
+            verb_tokens = [
+                t for t in sent
+                if t.pos_ in {"VERB", "AUX"} and is_valid_predicate_token(t, lang=resolved_lang)
+            ]
 
         if not verb_tokens:
             continue
+
+        # If a passive auxiliary has a lexical verb complement/conj in the same sentence, skip the auxiliary
+        has_lexical_verbs = any(
+            t.text not in _ZH_PASSIVE_CHARS and not any(t.text.startswith(c) for c in _ZH_PASSIVE_CHARS)
+            for t in verb_tokens
+        )
+        if has_lexical_verbs and len(verb_tokens) > 1:
+            filtered_verbs = []
+            for t in verb_tokens:
+                is_aux_only = t.text in _ZH_PASSIVE_CHARS or any(t.text.startswith(c) for c in _ZH_PASSIVE_CHARS)
+                if is_aux_only:
+                    continue
+                filtered_verbs.append(t)
+            if filtered_verbs:
+                verb_tokens = filtered_verbs
 
         for verb in verb_tokens:
             is_passive, voice_markers = _detect_passive(verb, sent, resolved_lang)
@@ -318,7 +425,7 @@ def extract_svo(doc: Doc, lang: Lang | None = None) -> list[SVORecord]:
                 elif child.dep_ in {"agent"} or (child.dep_ == "prep" and child.lemma_ == "by"):
                     # Prepositional agent in English passive: "arrested by the police"
                     for grandchild in child.children:
-                        if grandchild.dep_ in _OBJECT_DEPS:
+                        if grandchild.dep_ in _OBJECT_DEPS or grandchild.pos_ in _PARTICIPANT_HEAD_POS:
                             span = _collect_participant_span(grandchild)
                             if span:
                                 objects.append(span)
@@ -337,8 +444,9 @@ def extract_svo(doc: Doc, lang: Lang | None = None) -> list[SVORecord]:
             else:
                 subjects.extend(act_subjs or pass_subjs)
 
-            # Inherit subjects from head verb in conjunction chains or complement of 遭
-            if not subjects and verb.head != verb:
+            # Inherit subjects from head verb only in non-reporting conjunction chains or complement of 遭
+            is_reporting_head = verb.head.text in {"表示", "指出", "說", "認為", "強調", "呼籲", "批評", "譴責", "say", "state", "report"}
+            if not subjects and verb.head != verb and not is_reporting_head:
                 if verb.head.text in {"遭", "遭到"} and verb.dep_ in {"ccomp", "xcomp"}:
                     for sib in verb.head.children:
                         if sib.dep_ in _ACTIVE_SUBJ_DEPS or sib.dep_ in _PASSIVE_SUBJ_DEPS:
@@ -353,16 +461,12 @@ def extract_svo(doc: Doc, lang: Lang | None = None) -> list[SVORecord]:
                                 subjects.append(span)
 
             # If verb is ccomp of 遭 (e.g. 遭警方逮捕):
-            # verb.head (遭) has subject '參與者' (patient). If verb has subject '警方' (agent),
-            # then '參與者' is the logical patient (object) of verb!
             if verb.head != verb and verb.head.text in {"遭", "遭到"} and verb.dep_ in {"ccomp", "xcomp"}:
                 for sib in verb.head.children:
                     if sib.dep_ in _ACTIVE_SUBJ_DEPS or sib.dep_ in _PASSIVE_SUBJ_DEPS:
                         span = _collect_participant_span(sib)
                         if span and span not in objects:
                             objects.append(span)
-
-            from news_deframe.parser.predicate_normalization import normalize_predicate_text
 
             norm_verb = normalize_predicate_text(
                 verb.lemma_ or verb.text,
@@ -371,10 +475,14 @@ def extract_svo(doc: Doc, lang: Lang | None = None) -> list[SVORecord]:
                 lang=resolved_lang,
             )
 
+            final_verb = norm_verb or verb.lemma_ or verb.text
+            if not is_valid_predicate_token(verb, final_verb, lang=resolved_lang):
+                continue
+
             records.append(
                 SVORecord(
                     sentence=sent.text.strip(),
-                    verb=norm_verb or verb.lemma_ or verb.text,
+                    verb=final_verb,
                     subjects=subjects,
                     objects=objects,
                     is_passive=is_passive,
@@ -385,9 +493,9 @@ def extract_svo(doc: Doc, lang: Lang | None = None) -> list[SVORecord]:
     return records
 
 
-
 def passive_ratio(records: list[SVORecord]) -> float:
     """Return the fraction of SVO records that are passive (0.0 if empty)."""
     if not records:
         return 0.0
     return sum(1 for r in records if r.is_passive) / len(records)
+

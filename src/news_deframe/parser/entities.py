@@ -114,6 +114,18 @@ def _strip_punct(text: str) -> str:
 _BLOCKLISTED_ENTITIES: frozenset[str] = frozenset({"會表", "謹衝", "黑箱"})
 
 
+def _clean_entity_surface(text: str) -> str:
+    """Clean entity surface text by removing boundary punctuation, particles, and trailing verbal noise."""
+    cleaned = _strip_punct(text.strip())
+    # Strip leading prepositions / conjunctions
+    import re
+    cleaned = re.sub(r"^[在向從於對到與及和跟]\s*", "", cleaned)
+    # Strip trailing temporal / aspect / verbal particles
+    cleaned = re.sub(r"(敲槌後|受訪說|提案指出|受訪時|受訪|敲槌|簽名|協商|提案)$", "", cleaned)
+    cleaned = re.sub(r"[的之時後前等在地向從於]+$", "", cleaned).strip()
+    return cleaned
+
+
 def _is_valid_entity(ent: "Span | str") -> bool:
     """Validate named entity spans using POS purity, boundary chars, and length."""
     raw_text = ent if isinstance(ent, str) else ent.text
@@ -125,18 +137,17 @@ def _is_valid_entity(ent: "Span | str") -> bool:
     if text in _BLOCKLISTED_ENTITIES:
         return False
 
-    # 實體內部若跨越動詞、介系詞、連詞或標點，判定為斷詞破裂
+    # Check structural internal token POS purity
     if not isinstance(ent, str):
         if any(getattr(token, "pos_", None) in _INVALID_ENTITY_POS for token in ent):
             return False
 
-        # Reject spans whose syntactic root is an adjective or adverb.
-        # These are never event participants; they indicate NER mislabelling.
+        # Reject spans whose syntactic root is an adjective, adverb, or verb
         root_pos = getattr(ent.root, "pos_", None)
-        if root_pos in {"ADJ", "ADV"}:
+        if root_pos in {"ADJ", "ADV", "VERB", "ADP", "SCONJ"}:
             return False
 
-    # 首尾字元虛詞與動作字首防護
+    # Structural CJK boundary character guards
     if _is_cjk(text[0]) and text[0] in _ZH_VERB_PREFIX_CHARS:
         return False
     if _is_cjk(text[-1]) and text[-1] in _ZH_FUNCTION_SUFFIX_CHARS:
@@ -205,7 +216,9 @@ def _extract_ner_modifiers(doc: "Doc") -> list[EntityModifier]:
         if not _is_valid_entity(ent):
             continue
 
-        text = _strip_punct(ent.text.strip())
+        text = _clean_entity_surface(ent.text.strip())
+        if len(text) < 2:
+            continue
         key = (text, label)
         if key in seen_keys:
             continue

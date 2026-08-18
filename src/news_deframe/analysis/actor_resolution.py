@@ -96,19 +96,29 @@ _STRUCTURAL_NON_ACTOR_ENDINGS = (
     "廠", "中心", "園區", "保護區", "基地", "變電所", "所", "站",
     "street", "square", "road", "avenue", "area", "direction", "zone", "district", "place", "site", "venue",
     "station", "facility", "center", "plant", "base", "park",
-    # Events / Actions / Processes
+    # Events / Actions / Processes / Deadlocks
     "活動", "示威", "集會", "推擠", "衝突", "逮捕", "行動", "勤務", "調查", "過程", "經過", "情形", "事件",
+    "結果", "僵局", "大戰", "協商", "審查", "共識", "爭議", "推動", "政務", "義務", "制度", "原則", "政策", "決議", "延宕", "審查延宕",
+    "施政", "表決", "爭辯", "比讚", "讚",
     "protest", "rally", "demonstration", "clash", "arrest", "process", "investigation", "procedure", "incident", "operation",
-    # Abstract concepts / states / injuries / outcomes / media
-    "計畫", "規定", "秩序", "意見", "權利", "說法", "方式", "資料", "影像", "畫面", "支援", "溝通", "擦傷", "大礙", "傷勢", "完整", "片段",
+    # Fiscal / Budgetary / Statutory concepts
+    "預算", "預算案", "總預算", "總預", "歲出", "歲入", "特別費", "媒宣費", "人事費", "事務費", "經費", "金額", "總額", "歲出總額", "額",
+    "薪水", "薪資", "工資", "退休金", "加薪", "資遣費", "罰鍰", "規模", "條例", "法規", "法律", "修正案", "憲政慣例", "慣例", "法", "案",
+    # Abstract concepts / states / injuries / conduct / outcomes / media
+    "計畫", "規定", "秩序", "意見", "權利", "說法", "方式", "資料", "影像", "畫面", "支援", "溝通", "擦傷", "大礙", "傷勢", "傷害", "死傷",
+    "舉止", "言行", "舉動", "行為", "言行舉止", "完整", "片段",
     "plan", "rule", "order", "opinion", "right", "statement", "method", "data", "footage", "image", "injury", "scratch", "support",
+    # Pronoun / discourse fragments
+    "他代表", "大家", "彼此", "雙方", "各方", "本身", "部分", "方面", "前", "後", "時", "上面", "下面", "拖", "共計", "該", "減列", "增列",
 )
 
 _STRUCTURAL_ACTOR_ENDINGS = (
-    "者", "人", "員", "團體", "警方", "局", "署", "黨", "隊", "眾", "群", "部", "府", "院", "師", "官", "單位", "當局", "雙方", "彼此",
+    "者", "人", "員", "團體", "警方", "局", "署", "黨", "黨團", "隊", "眾", "群", "部", "府", "院", "師", "官",
+    "單位", "當局", "警消", "公務人員", "警察", "教師", "學生", "市民", "民眾", "人民", "朝野", "朝野黨團", "三黨團",
+    "立委", "議員", "發言人", "召集人", "部長", "院長", "主席", "總召", "參選人", "委員", "首長", "校長", "代表",
     "police", "officers", "protesters", "demonstrators", "organizers", "witnesses", "citizens", "crowd",
     "authorities", "government", "council", "department", "court", "union", "spokesperson", "guard", "guards",
-    "body", "team", "corps", "agency", "group",
+    "body", "team", "corps", "agency", "group", "minister", "president", "chairman", "director", "senator", "representative",
 )
 
 _UNACCUSATIVE_LOCATIVE_VERBS = frozenset({
@@ -124,6 +134,24 @@ _SVO_DERIVED_TYPE: str = "SVO_PARTICIPANT"
 # -- Span structural validation -----------------------------------------------
 
 
+def _is_pure_quantity_or_date(text: str) -> bool:
+    """Return True if text is a quantity, date, time, or numerical count rather than a participant."""
+    stripped = text.strip()
+    if not stripped:
+        return True
+    # Digits + unit/classifier
+    if re.match(r"^(\d+|[一二三四五六七八九十百千萬億兆]+)\s*(人|元|天|年|月|日|號|分|點|時|%|成|度|案)?$", stripped):
+        return True
+    if re.match(r"^\d+年\d+月\d+日$", stripped):
+        return True
+    if re.match(r"^\d+(\.\d+)?%$", stripped):
+        return True
+    if any(stripped.endswith(s) for s in ("億元", "萬元", "億", "萬", "元", "天", "日", "年度", "年", "月")):
+        if not any(stripped.endswith(a) for a in _STRUCTURAL_ACTOR_ENDINGS):
+            return True
+    return False
+
+
 def _is_valid_surface(text: str) -> bool:
     """Return True when *text* is structurally plausible as an actor name.
 
@@ -131,6 +159,9 @@ def _is_valid_surface(text: str) -> bool:
     """
     stripped = text.strip()
     if len(stripped) < 2:
+        return False
+
+    if _is_pure_quantity_or_date(stripped):
         return False
 
     # Must contain at least one letter or CJK character
@@ -186,6 +217,9 @@ def _is_valid_svo_span(span_text: str) -> bool:
     """
     text = span_text.strip()
     if len(text) < 2:
+        return False
+
+    if _is_pure_quantity_or_date(text):
         return False
 
     # Character length limit for a participant span
@@ -485,11 +519,21 @@ def _validate_actor(
     if ner_type in _NON_ACTOR_NER_LABELS:
         return False
 
+    # Pronoun / discourse prefix check
+    if surface.startswith(("他", "她", "你", "我", "其", "這", "那")):
+        return False
+
     s_lower = surface.strip().lower()
 
-    # Structural non-actor check (locations, events, actions, abstract concepts, injuries)
+    # Structural non-actor check (locations, events, actions, abstract concepts, injuries, fiscal items)
     if any(s_lower.endswith(na) for na in _STRUCTURAL_NON_ACTOR_ENDINGS):
-        if not any(s_lower.endswith(a) for a in _STRUCTURAL_ACTOR_ENDINGS):
+        if not any(s_lower.endswith(a) for a in (
+            "警局", "分局", "總局", "管理局", "調查局", "立法院", "行政院", "監察院", "教育部", "法院",
+            "代表", "委員", "部長", "院長", "主席", "總召", "立委", "議員", "官員", "警察", "警消",
+            "市民", "民眾", "人民", "團隊", "黨團", "署", "隊", "師", "團體",
+            "police", "officers", "protesters", "demonstrators", "organizers", "witnesses", "citizens", "crowd",
+            "authorities", "government", "council", "department", "court", "union", "spokesperson", "guard", "guards",
+        )):
             return False
 
     # Broken clausal / parser fragments check
@@ -585,16 +629,16 @@ def _should_merge(surface_a: str, type_a: str, surface_b: str, type_b: str) -> b
     """Return True when two candidates should share a canonical actor.
 
     Conservative: requires compatible NER types AND at least one strong
-    lexical/abbreviation signal.
+    lexical/abbreviation signal or title+name subsumption.
 
     SVO-derived candidates (_SVO_DERIVED_TYPE) can be merged with any other
-    candidate when the surface forms match, because the SVO path may find
+    candidate when the surface forms match or subsume, because the SVO path may find
     the same participant that NER independently identified.
     """
     group_a = _type_group(type_a)
     group_b = _type_group(type_b)
 
-    # Allow SVO-derived to merge with any candidate on exact normalized match
+    # Allow SVO-derived to merge with any candidate on exact normalized match or subsumption
     svo_involved = _SVO_DERIVED_TYPE in {type_a, type_b}
 
     if not svo_involved and group_a != group_b:
@@ -611,9 +655,31 @@ def _should_merge(surface_a: str, type_a: str, surface_b: str, type_b: str) -> b
     if _token_overlap_ratio(surface_a, surface_b) >= 0.75:
         return True
 
-    # Abbreviation relationship
+    # Abbreviation relationship (e.g. 立院 <-> 立法院)
     if _is_abbreviation_of(surface_a, surface_b) or _is_abbreviation_of(surface_b, surface_a):
         return True
+
+    # Chinese & English Title + Name subsumption:
+    # e.g. '立法院長韓國瑜' <-> '韓國瑜', '行政院長卓榮泰' <-> '卓榮泰', '民眾黨主席黃國昌' <-> '黃國昌'
+    # 'President Biden' <-> 'Biden', 'Senator Smith' <-> 'Smith'
+    for long_k, short_k, long_surf, short_surf in ((key_a, key_b, surface_a, surface_b), (key_b, key_a, surface_b, surface_a)):
+        if len(short_k) >= 2 and long_k.endswith(short_k) and len(long_k) > len(short_k):
+            prefix = long_k[:-len(short_k)].strip()
+            # If prefix contains title / org / role morphemes
+            if any(prefix.endswith(t) or prefix.startswith(t) for t in (
+                "長", "主席", "總召", "立委", "議員", "參選人", "部長", "院長", "代表", "署長", "局長", "處長",
+                "president", "minister", "senator", "representative", "director", "chair", "chairman", "spokesperson",
+            )):
+                return True
+
+        # Party caucus / sub-body subsumption: '立院民進黨團' <-> '民進黨團' <-> '民進黨'
+        if "黨團" in long_k and ("黨" in short_k or "黨團" in short_k):
+            if short_k in long_k:
+                return True
+
+        # Truncated mention subsumption within same entity stem: '民進' <-> '民進黨', '周曉' <-> '周曉芸'
+        if len(short_k) >= 2 and long_k.startswith(short_k) and len(long_k) - len(short_k) <= 2:
+            return True
 
     # Suffix / head noun match for Chinese compounds & English phrases
     for suffix in (
@@ -675,7 +741,7 @@ def _canonicalize_actors(validated: list) -> list:
         members = [sorted_cands[i] for i in indices]
         surfaces = [m[0] for m in members]
 
-        # Choose canonical name by mention frequency
+        # Choose canonical name: prefer specific proper name / title over bare fragments
         surface_counter: Counter = Counter()
         for _, _, mention_list in members:
             for mention in mention_list:
@@ -686,7 +752,7 @@ def _canonicalize_actors(validated: list) -> list:
 
         canonical_name = max(
             surface_counter.keys(),
-            key=lambda s: (surface_counter[s], -len(_normalize_key(s))),
+            key=lambda s: (surface_counter[s], len(_normalize_key(s))),
         )
 
         all_mentions = []
@@ -740,6 +806,8 @@ def _aggregate_role_stats(
     Denominator: role_occurrence_count = agent_count + patient_count.
     All ratios are 0.0 when the denominator is zero.
     """
+    from news_deframe.parser.predicate_normalization import is_valid_predicate_token
+
     article_mentions = [m for m in actor.mentions if m.article_id == article_id]
 
     mention_count = len(article_mentions)
@@ -756,10 +824,10 @@ def _aggregate_role_stats(
     passive_patient_ratio = round(passive_patient_count / patient_count, 4) if patient_count > 0 else 0.0
 
     agent_verbs = _deduplicate_ordered(
-        [m.verb for m in article_mentions if m.role == "agent" and m.verb]
+        [m.verb for m in article_mentions if m.role == "agent" and m.verb and is_valid_predicate_token(None, m.verb)]
     )
     patient_verbs = _deduplicate_ordered(
-        [m.verb for m in article_mentions if m.role == "patient" and m.verb]
+        [m.verb for m in article_mentions if m.role == "patient" and m.verb and is_valid_predicate_token(None, m.verb)]
     )
 
     modifier_sources = list(article_modifiers)
