@@ -65,6 +65,7 @@ _ZH_PASSIVE_AUXILIARIES: frozenset[str] = frozenset({"遭", "遭到", "被", "�
 _ZH_STATIVE_ADJECTIVES: frozenset[str] = frozenset({
     "平穩", "平靜", "緊張", "突然", "嚴重", "輕微", "大礙", "良好", "激烈", "混亂", "迅速",
     "好", "壞", "高", "低", "多", "少", "大", "小", "晚", "早", "快", "慢", "完備", "齊全",
+    "成熟", "適任", "不適任", "失望", "細漢", "失職", "失言", "無奈", "難過", "氣憤",
 })
 
 # Conjunctions, prepositions, or case particles that must not terminate a legitimate verb
@@ -75,12 +76,13 @@ _ZH_INVALID_VERB_SUFFIXES: tuple[str, ...] = (
 # Discourse / connective prefixes that indicate non-verbal sentence connectors
 _ZH_DISCOURSE_PREFIXES: frozenset[str] = frozenset({
     "對此", "因此", "由此", "從此", "如此", "不過", "另外", "其實", "樣說", "說這", "訪說", "展委",
+    "請問", "想想", "請問到", "請問是否", "到底誰", "何以致之",
 })
 
 # Nominal morphemes that signal noun / title / classifier fragments misclassified as verbs
 _ZH_BOUND_NOMINAL_MORPHEMES: tuple[str, ...] = (
     "費", "案", "額", "處", "員", "總", "例", "部", "所", "法", "局", "院", "籍", "性", "度", "率", "慣",
-    "言行", "操行", "品行", "德行", "暴行",
+    "言行", "操行", "品行", "德行", "暴行", "戰", "僵局", "結果", "部分", "方面",
 )
 
 # Established compound action / reporting verbs that legitimately contain bound morphemes
@@ -160,8 +162,12 @@ def is_valid_predicate_token(token: Token | None, text_override: str = "", lang:
     if len(text) > 1 and any(text.endswith(s) for s in _ZH_INVALID_VERB_SUFFIXES):
         return False
 
-    # Check bound nominal morphemes (e.g. '宣費', '別費', '出總', '政慣', '言行')
+    # Check bound nominal morphemes (e.g. '宣費', '別費', '出總', '政慣', '言行', '大戰')
     if len(text) > 1 and any(text.endswith(m) for m in _ZH_BOUND_NOMINAL_MORPHEMES):
+        return False
+
+    # Check partial aspect prefix + single-char verb fragments (e.g. '將表', '將提', '正調')
+    if len(text) == 2 and text[0] in "將正已欲曾" and text not in _ZH_VALID_LEXICAL_COMPOUND_VERBS:
         return False
 
     # Single-character CJK validation
@@ -279,6 +285,27 @@ def normalize_predicate_text(
                             return "達成"
                         if raw == "送" and ctext == "到":
                             return "送到"
+
+            # Check linear adjacent doc tokens if syntactic child walk did not find compound
+            doc = getattr(head_token, "doc", None)
+            hi = getattr(head_token, "i", -99)
+            if doc is not None and 0 <= hi < len(doc):
+                if hi + 1 < len(doc):
+                    next_t = doc[hi + 1]
+                    next_text = getattr(next_t, "text", "")
+                    cand1 = raw + next_text
+                    if cand1 in _ZH_VALID_LEXICAL_COMPOUND_VERBS:
+                        return cand1
+                    if len(raw) > 1 and raw[0] in "將正已欲曾要會再":
+                        cand_split = raw[1:] + next_text
+                        if cand_split in _ZH_VALID_LEXICAL_COMPOUND_VERBS:
+                            return cand_split
+                if hi - 1 >= 0:
+                    prev_t = doc[hi - 1]
+                    prev_text = getattr(prev_t, "text", "")
+                    cand_prev = prev_text + raw
+                    if cand_prev in _ZH_VALID_LEXICAL_COMPOUND_VERBS:
+                        return cand_prev
 
         # 2. English phrasal verb particle attachment (e.g. 'break' + 'through' -> 'break through')
         elif lang == "en":

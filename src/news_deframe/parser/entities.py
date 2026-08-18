@@ -117,12 +117,14 @@ _BLOCKLISTED_ENTITIES: frozenset[str] = frozenset({"會表", "謹衝", "黑箱"}
 def _clean_entity_surface(text: str) -> str:
     """Clean entity surface text by removing boundary punctuation, particles, and trailing verbal noise."""
     cleaned = _strip_punct(text.strip())
-    # Strip leading prepositions / conjunctions
+    # Strip leading prepositions, speech markers, politeness particles
     import re
-    cleaned = re.sub(r"^[在向從於對到與及和跟]\s*", "", cleaned)
-    # Strip trailing temporal / aspect / verbal particles
-    cleaned = re.sub(r"(敲槌後|受訪說|提案指出|受訪時|受訪|敲槌|簽名|協商|提案)$", "", cleaned)
-    cleaned = re.sub(r"[的之時後前等在地向從於]+$", "", cleaned).strip()
+    cleaned = re.sub(r"^[在向從於對到與及和跟經由請要]\s*", "", cleaned)
+    # Strip trailing temporal / aspect / verbal particles / copulas
+    cleaned = re.sub(r"(敲槌後|受訪說|提案指出|受訪時|受訪|敲槌|簽名|協商|提案|指出|表示|喊話)$", "", cleaned)
+    cleaned = re.sub(r"[的之時後前等在地向從於為是]+$", "", cleaned).strip()
+    # Collapse duplicate characters (e.g. 黨黨團 -> 黨團, 院院長 -> 院長)
+    cleaned = re.sub(r"(.)\1(?=黨團|委員會|院|局|署|部|會|隊|單位|府)", r"\1", cleaned)
     return cleaned
 
 

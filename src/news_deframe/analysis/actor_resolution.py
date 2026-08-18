@@ -663,23 +663,33 @@ def _should_merge(surface_a: str, type_a: str, surface_b: str, type_b: str) -> b
     # e.g. '立法院長韓國瑜' <-> '韓國瑜', '行政院長卓榮泰' <-> '卓榮泰', '民眾黨主席黃國昌' <-> '黃國昌'
     # 'President Biden' <-> 'Biden', 'Senator Smith' <-> 'Smith'
     for long_k, short_k, long_surf, short_surf in ((key_a, key_b, surface_a, surface_b), (key_b, key_a, surface_b, surface_a)):
-        if len(short_k) >= 2 and long_k.endswith(short_k) and len(long_k) > len(short_k):
-            prefix = long_k[:-len(short_k)].strip()
-            # If prefix contains title / org / role morphemes
-            if any(prefix.endswith(t) or prefix.startswith(t) for t in (
-                "長", "主席", "總召", "立委", "議員", "參選人", "部長", "院長", "代表", "署長", "局長", "處長",
-                "president", "minister", "senator", "representative", "director", "chair", "chairman", "spokesperson",
-            )):
-                return True
+        if len(short_k) >= 2 and len(long_k) > len(short_k):
+            # Exact Title + Name suffix match
+            if long_k.endswith(short_k):
+                prefix = long_k[:-len(short_k)].strip()
+                if any(prefix.endswith(t) or prefix.startswith(t) for t in (
+                    "長", "主席", "總召", "立委", "議員", "參選人", "部長", "院長", "代表", "署長", "局長", "處長",
+                    "president", "minister", "senator", "representative", "director", "chair", "chairman", "spokesperson",
+                )):
+                    return True
 
-        # Party caucus / sub-body subsumption: '立院民進黨團' <-> '民進黨團' <-> '民進黨'
-        if "黨團" in long_k and ("黨" in short_k or "黨團" in short_k):
+            # Title + partial name subsumption: '立法院長韓國瑜' <-> '韓國', '立法院長韓國瑜' <-> '國瑜', '教育部長鄭英耀' <-> '英耀'
             if short_k in long_k:
-                return True
+                for t in ("長", "主席", "總召", "立委", "議員", "參選人", "部長", "院長", "代表", "署長", "局長", "處長"):
+                    if t in long_k:
+                        idx = long_k.rfind(t)
+                        name_part = long_k[idx + len(t):]
+                        if len(name_part) >= 2 and (short_k in name_part or name_part in short_k):
+                            return True
 
-        # Truncated mention subsumption within same entity stem: '民進' <-> '民進黨', '周曉' <-> '周曉芸'
-        if len(short_k) >= 2 and long_k.startswith(short_k) and len(long_k) - len(short_k) <= 2:
-            return True
+            # Party caucus / sub-body subsumption: '立院民進黨團' <-> '民進黨團' <-> '民進黨', '朝野各黨團' <-> '朝野黨團'
+            if "黨團" in long_k and ("黨" in short_k or "黨團" in short_k):
+                if short_k in long_k or (short_k.replace("各", "") in long_k.replace("各", "")):
+                    return True
+
+            # Truncated mention subsumption within same entity stem: '韓國' <-> '韓國瑜', '民進' <-> '民進黨', '周曉' <-> '周曉芸'
+            if (long_k.startswith(short_k) or long_k.endswith(short_k)) and len(long_k) - len(short_k) <= 2:
+                return True
 
     # Suffix / head noun match for Chinese compounds & English phrases
     for suffix in (

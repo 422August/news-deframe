@@ -397,12 +397,17 @@ _UNIT_MULTIPLIER = {
     "萬": 10000.0,
     "千": 1000.0,
     "百": 100.0,
+    "trillion": 1000000000000.0,
+    "billion": 1000000000.0,
+    "million": 1000000.0,
+    "thousand": 1000.0,
 }
 
 _COMPOUND_NUMERAL = re.compile(
     r"(?<![a-zA-Z0-9])"
-    r"(\d+(?:[,，]\d+)*(?:\.\d+)?(?:\s*(?:兆|億|萬|千|百))?)+"
-    r"(?:\s*(?:%|百分之|元|人|名|個|戶|家|間|件|次|項|筆|dollars|percent|points|homes|workers))?"
+    r"(\d+(?:[,，]\d+)*(?:\.\d+)?(?:\s*(?:兆|億|萬|千|百|trillion|billion|million|thousand))?)+"
+    r"(?:\s*(?:%|百分之|元|人|名|個|戶|家|間|件|次|項|筆|dollars|percent|points|homes|workers))?",
+    re.IGNORECASE,
 )
 
 _QUANTITY_CHINESE = re.compile(
@@ -414,20 +419,73 @@ _STOP_TARGET = frozenset({
     "的", "個", "及", "與", "和", "從", "到", "由", "將", "於", "其", "中",
 })
 
-_ZH_KEY_FISCAL_UNIGRAMS = frozenset({"入", "出", "刪", "減", "增", "編", "列", "凍", "減列", "增列", "統刪", "刪除"})
-
 _ZH_ACTION_VERBS = re.compile(
-    r"(?:通過|審查|審議|表決|完成|凍結|刪除|減列|增列|編列|統刪|三讀|二讀|動支|副署|執行|呼籲|強調|指出|表示|受訪|簽名|動員|卡關|改列|計列|增加|減少|調升|調降|是|為|有|達|遭|欠|給|引|提|比讚|宣布|認為|說明|重申|反對|贊成)"
+    r"(?:通過|審查|審議|表決|完成|凍結|刪除|減列|增列|編列|統刪|砍刪|三讀|二讀|動支|副署|執行|呼籲|強調|指出|表示|"
+    r"受訪|簽名|動員|卡關|改列|計列|增加|減少|調升|調降|宣布|認為|說明|重申|反對|贊成|逮捕|調查|抗議|批評|譴責|"
+    r"要求|答應|改正|質詢|備詢|提案|達成|延宕|影響|運作|放寬|嚴管|啟動|重啟|停用|查扣|起訴|發生|舉行|出現|造成|"
+    r"導致|涉及|拒絕|同意|確認|打算|展開|公布|發表|引發|推動|裁決|處理|審判|立法|執法|出面|爆發|受損|受創|修復|"
+    r"中斷|恢復|搶修|延誤|損失|波及|受害|提告|求償|賠償|處罰|開罰|通報|撤銷|廢止|違規|違法|解僱|罷工|抗爭|示威|"
+    r"發動|抵制|撤離|進駐|封鎖|解封|放行|攔截|查獲|破獲|查緝|查處|取締|移送|交保|羈押|飭回|定讞|判刑|上訴|駁回|"
+    r"改判|獲釋|釋放|證實|澄清|駁斥|否認|指控|指責|反駁|坦承|承認|透露|直言|痛批|怒轟|開轟|疾呼|訴求|下達|送達|"
+    r"是|為|有|無|達|佔|占|遭|欠|給|引|提|比讚)"
 )
+
+_ZH_SINGLE_ACTION_CHARS = frozenset(
+    "說稱提簽砍刪凍批遭看給訪決讓答派辦降增減買賣宣罰告警抓救退換改請催追停封移扣拒准控談破跌漲死傷亡毀損打放收開閉走跑帶拉推"
+)
+
 _EN_ACTION_VERBS = re.compile(
-    r"\b(?:pass|passed|approve|approved|vote|voted|cut|cuts|reduced|reduce|increase|increased|freeze|frozen|complete|completed|said|stated|demanded|urged|is|was|were|are|has|had|have|declined|struck)\b",
+    r"\b(?:pass|passed|passes|passing|approve|approved|approves|approving|vote|voted|votes|voting|"
+    r"cut|cuts|cutting|reduce|reduced|reduces|reducing|increase|increased|increases|increasing|"
+    r"freeze|frozen|freezes|freezing|complete|completed|completes|completing|said|states|stated|stating|"
+    r"demanded|demands|demanding|urged|urges|urging|is|was|were|are|am|be|been|being|has|had|have|having|"
+    r"declined|declines|declining|struck|strikes|striking|strike|broke|break|broken|breaking|breaks|"
+    r"arrest|arrests|arrested|arresting|suffer|suffers|suffered|suffering|make|makes|made|making|"
+    r"take|takes|took|taken|taking|see|sees|saw|seen|seeing|find|finds|found|finding|fall|falls|fell|fallen|falling|"
+    r"rise|rises|rose|risen|rising|grow|grows|grew|grown|growing|lose|loses|lost|losing|win|wins|won|winning|"
+    r"give|gives|gave|given|giving|tell|tells|told|telling|report|reports|reported|reporting|claim|claims|claimed|claiming|"
+    r"confirm|confirms|confirmed|confirming|deny|denies|denied|denying|agree|agrees|agreed|agreeing|"
+    r"launch|launches|launched|launching|occur|occurs|occurred|occurring|cause|causes|caused|causing|"
+    r"halt|halts|halted|halting|stop|stops|stopped|stopping|suspend|suspends|suspended|suspending|"
+    r"damage|damages|damaged|damaging|destroy|destroys|destroyed|destroying|kill|kills|killed|killing|"
+    r"injure|injures|injured|injuring|detain|detains|detained|detaining|fine|fines|fined|fining|"
+    r"investigate|investigates|investigated|investigating|charge|charges|charged|charging|close|closed|closing|"
+    r"reopen|reopened|reopening|repair|repaired|repairing|restore|restored|restoring|publish|published|publishing|"
+    r"do|does|did|done|doing|will|would|shall|should|can|could|may|might|must)\b",
+    re.IGNORECASE,
+)
+
+_EN_NUMBER_WORDS: dict[str, float] = {
+    "zero": 0.0, "one": 1.0, "two": 2.0, "three": 3.0, "four": 4.0,
+    "five": 5.0, "six": 6.0, "seven": 7.0, "eight": 8.0, "nine": 9.0,
+    "ten": 10.0, "eleven": 11.0, "twelve": 12.0, "twenty": 20.0,
+    "thirty": 30.0, "forty": 40.0, "fifty": 50.0, "sixty": 60.0,
+    "seventy": 70.0, "eighty": 80.0, "ninety": 90.0, "hundred": 100.0,
+    "thousand": 1000.0, "million": 1000000.0, "billion": 1000000000.0,
+}
+
+_QUANTITY_ENGLISH_PATTERN = re.compile(
+    r"\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+    r"twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion)\b",
     re.IGNORECASE,
 )
 
 
 def _has_actionable_predicate(text: str) -> bool:
-    """Return True if text contains a recognizable action verb or predicate."""
-    return bool(_ZH_ACTION_VERBS.search(text) or _EN_ACTION_VERBS.search(text))
+    """Return True if text contains a recognizable action verb, verbal suffix, or predicate."""
+    if _ZH_ACTION_VERBS.search(text):
+        return True
+    if any(ch in _ZH_SINGLE_ACTION_CHARS for ch in text):
+        return True
+    if _EN_ACTION_VERBS.search(text):
+        return True
+    # English morphology heuristic: words ending with past/participle/verbal suffixes
+    words = re.findall(r"[a-zA-Z]+", text)
+    for w in words:
+        wl = w.lower()
+        if len(wl) >= 4 and (wl.endswith("ed") or wl.endswith("ing") or wl.endswith("ize") or wl.endswith("ized") or wl.endswith("ated")):
+            return True
+    return False
 
 
 def _parse_chinese_numeral(q: str) -> float | None:
@@ -490,17 +548,26 @@ def _normalize_quantity_value(q: str) -> float | None:
     except ValueError:
         pass
 
-    # Mixed Arabic-CJK: parse parts like '2兆8622億5319萬1000'
-    parts = re.findall(r"(\d+(?:\.\d+)?)\s*(兆|億|萬|千|百)?", q_clean)
+    # Mixed Arabic-CJK/Latin: parse parts like '2兆8622億5319萬1000' or '4 billion'
+    parts = re.findall(r"(\d+(?:\.\d+)?)\s*(兆|億|萬|千|百|trillion|billion|million|thousand)?", q_clean, flags=re.IGNORECASE)
     if parts:
         tot = 0.0
+        has_unit = False
         for v_str, unit in parts:
             if v_str:
-                tot += float(v_str) * _UNIT_MULTIPLIER.get(unit, 1.0)
-        if tot > 0:
+                u_key = unit.lower() if unit else ""
+                mult = _UNIT_MULTIPLIER.get(u_key, 1.0)
+                if u_key in _UNIT_MULTIPLIER:
+                    has_unit = True
+                tot += float(v_str) * mult
+        if tot > 0 and (has_unit or len(parts) == 1):
             return tot
 
-    return _parse_chinese_numeral(q_clean)
+    zh_val = _parse_chinese_numeral(q_clean)
+    if zh_val is not None:
+        return zh_val
+
+    return _EN_NUMBER_WORDS.get(q_clean.lower())
 
 
 _STOP_TARGET_WORDS = re.compile(
@@ -540,7 +607,7 @@ def extract_structured_quantities(text: str) -> list[StructuredQuantity]:
             for i in range(len(cjk) - 1):
                 target_tokens.add(cjk[i] + cjk[i + 1])
             for ch in cjk:
-                if ch in _ZH_KEY_FISCAL_UNIGRAMS:
+                if ch not in _STOP_TARGET:
                     target_tokens.add(ch)
             for w in re.findall(r"[a-zA-Z]+", ctx):
                 if len(w) >= 3 and w.lower() not in {"the", "and", "for", "was", "were", "has", "had", "been"}:
@@ -559,6 +626,7 @@ def extract_structured_quantities(text: str) -> list[StructuredQuantity]:
         if val is None:
             continue
 
+        seen_spans.add(m.span())
         start_idx = max(0, m.start() - 12)
         end_idx = min(len(text), m.end() + 12)
         pre_ctx = _STOP_TARGET_WORDS.sub("", text[start_idx:m.start()])
@@ -570,12 +638,189 @@ def extract_structured_quantities(text: str) -> list[StructuredQuantity]:
             for i in range(len(cjk) - 1):
                 target_tokens.add(cjk[i] + cjk[i + 1])
             for ch in cjk:
-                if ch in _ZH_KEY_FISCAL_UNIGRAMS:
+                if ch not in _STOP_TARGET:
                     target_tokens.add(ch)
 
         results.append(StructuredQuantity(raw=raw_str, val=val, target_tokens=frozenset(target_tokens)))
 
+    # Also parse English number words
+    for m in _QUANTITY_ENGLISH_PATTERN.finditer(text):
+        if any(s <= m.start() and m.end() <= e for s, e in seen_spans):
+            continue
+        raw_str = m.group(0).strip()
+        val = _EN_NUMBER_WORDS.get(raw_str.lower())
+        if val is None:
+            continue
+
+        seen_spans.add(m.span())
+        start_idx = max(0, m.start() - 20)
+        end_idx = min(len(text), m.end() + 20)
+        pre_ctx = text[start_idx:m.start()]
+        post_ctx = text[m.end():end_idx]
+
+        target_tokens = set()
+        for ctx in (pre_ctx, post_ctx):
+            for w in re.findall(r"[a-zA-Z]+", ctx):
+                if len(w) >= 3 and w.lower() not in {"the", "and", "for", "was", "were", "has", "had", "been", "that", "this"}:
+                    target_tokens.add(w.lower())
+
+        results.append(StructuredQuantity(raw=raw_str, val=val, target_tokens=frozenset(target_tokens)))
+
     return results
+
+
+# Rhetorical questions / non-assertive conversational patterns to reject at post-decomposition stage
+_RHETORICAL_PATTERNS = re.compile(
+    r"(?:為什麼.*(?:說|講|要|會)|為何.*(?:說|講|要|會)|何謂因.*何謂果|何以致之.*孰以致之|變成什麼樣子|不予評價|不予評論|"
+    r"各方講法太多|把.*當.*嗎|不是.*簽名了嗎|改正了沒有|是不是.*了|算不算|到底.*誰|誰知道|"
+    r"\bwhy\s+would\b|\bwhat\s+would\s+happen\b|\bhow\s+could\b|\bwho\s+knows\b|\bhow\s+on\s+earth\b)",
+    re.IGNORECASE,
+)
+
+# Attribution endings that signal an intro prefix that should reattach forward to its quoted content
+_FORWARD_ATTRIBUTION_ENDINGS: tuple[str, ...] = (
+    "表示", "指出", "強調", "稱", "說", "指", "認為", "坦言", "透露",
+    "聲稱", "聲明", "宣布", "宣稱", "表明", "回應", "反駁", "呼籲", "喊話", "質疑",
+    "said", "stated", "urged", "demanded", "claimed", "noted", "argued", "insisted", "added",
+    "announced", "reported", "explained", "warned",
+)
+
+# Continuations / quantifiers that should reattach backward to the preceding proposition
+_BACKWARD_REATTACH_STARTINGS: tuple[str, ...] = (
+    "占", "佔", "合計", "共計", "金額共", "分別", "始得", "不得", "均不得",
+    "並", "且", "進而", "以及", "及", "同時", "並自", "並在", "並向",
+    "accounting for", "representing", "amounting to", "totaling",
+)
+
+
+def _reattach_proposition_fragments(clauses: list[str]) -> list[str]:
+    """Conservatively reattach dependent/subordinate fragments to neighboring clauses."""
+    if not clauses:
+        return []
+
+    # Clean boundary whitespace & trailing discourse particles
+    cleaned: list[str] = []
+    for c in clauses:
+        c_str = c.strip().strip("，,")
+        if not c_str:
+            continue
+        # Strip trailing discourse particles like '，對此', '，但請問'
+        c_str = re.sub(r"[，,]\s*(?:對此|為此|但請問|請問|因此|此外|另外)$", "", c_str).strip()
+        if c_str:
+            cleaned.append(c_str)
+
+    if len(cleaned) <= 1:
+        return cleaned
+
+    # Pass 1: Forward reattachment for attribution headers, temporal/condition suffixes, and topic prefixes
+    fwd_merged: list[str] = []
+    pending_prefix = ""
+
+    for i, clause in enumerate(cleaned):
+        current = (pending_prefix + "，" + clause) if pending_prefix else clause
+        pending_prefix = ""
+        is_last = (i == len(cleaned) - 1)
+
+        if not is_last:
+            c_clean = current.rstrip("，,。；; ")
+
+            # (a) Attribution header without body (e.g. '黃國昌受訪說', '韓國瑜也呼籲行政部門')
+            is_attr_intro = any(c_clean.endswith(a) for a in _FORWARD_ATTRIBUTION_ENDINGS) and len(c_clean) < 45
+
+            # (b) Subordinate temporal / condition prefix (e.g. '朝野歷經一下午表決大戰後', '完成依法編列預算及副署法律後')
+            is_subord_suffix = any(
+                c_clean.endswith(e) for e in ("後", "時", "前", "之際", "之後", "之前", "時許", "時左右", "以來源")
+            ) and len(c_clean) < 40 and not extract_structured_quantities(c_clean)
+
+            # (c) Topic / conditional prefix without verb/qty (e.g. '反而是新興計畫', '除債務償還照列外', '最受矚目的歲出部分')
+            is_topic_prefix = (
+                c_clean.startswith(("最受", "特別是", "尤其", "至於", "關於", "在", "而在", "對於", "反而是", "除", "依照", "根據", "依據", "經過", "歷經", "經過近", "經過長達", "as for", "regarding", "according to", "in terms of", "with regard to", "after", "following", "despite"))
+                and len(c_clean) < 45
+                and not extract_structured_quantities(c_clean)
+                and not _has_actionable_predicate(c_clean)
+            )
+
+            if is_attr_intro or is_subord_suffix or is_topic_prefix:
+                pending_prefix = current
+                continue
+
+        fwd_merged.append(current)
+
+    if pending_prefix:
+        if fwd_merged:
+            fwd_merged[-1] = fwd_merged[-1] + "，" + pending_prefix
+        else:
+            fwd_merged.append(pending_prefix)
+
+    # Pass 2: Backward reattachment for quantifier, percentage, and coordinate continuations
+    bwd_merged: list[str] = []
+    for clause in fwd_merged:
+        c_clean = clause.lstrip("，, ")
+        if bwd_merged and any(c_clean.startswith(s) for s in _BACKWARD_REATTACH_STARTINGS) and len(c_clean) < 40:
+            bwd_merged[-1] = bwd_merged[-1] + "，" + clause
+        else:
+            bwd_merged.append(clause)
+
+    return bwd_merged
+
+
+def check_atomic_proposition_eligibility(text: str) -> ClaimEligibility:
+    """Validate whether a decomposed proposition can independently enter claim clustering.
+
+    Enforces that every clustered proposition expresses a standalone factual assertion:
+    - Meaningful predicate, copular assertion, or quantity with semantic target.
+    - Rejects pure rhetorical questions, speech scaffolds, isolated dependent clauses,
+      and non-assertive topic headers.
+    """
+    raw = text.strip()
+    if not raw:
+        return ClaimEligibility(False, "Empty proposition.")
+
+    # 1. Source sentence eligibility base checks
+    base_elig = check_claim_eligibility(raw)
+    if not base_elig.eligible:
+        return base_elig
+
+    # 2. Rhetorical question / non-assertive conversational commentary filtering
+    if _RHETORICAL_PATTERNS.search(raw):
+        return ClaimEligibility(
+            False,
+            "Rhetorical question or conversational commentary without standalone factual assertion.",
+        )
+
+    # 3. Attribution speech-act header only with empty / incomplete body
+    zh_attr = _ZH_ATTRIBUTION_PATTERN.match(raw)
+    if zh_attr:
+        body = zh_attr.group(2).strip()
+        sub_cjk = [c for c in body if 0x4E00 <= ord(c) <= 0x9FFF]
+        sub_words = body.split()
+        if len(sub_cjk) < 3 and len(sub_words) < 2:
+            return ClaimEligibility(False, "Attribution introduction without substantive propositional body.")
+
+    # 4. Isolated subordinate / dependent clause without main predicate
+    if any(raw.endswith(e) for e in ("後", "時", "前", "之際", "之後", "之前", "時許", "時左右", "以來源")):
+        if not _has_actionable_predicate(raw) and not extract_structured_quantities(raw):
+            return ClaimEligibility(False, "Isolated subordinate temporal clause without main factual assertion.")
+
+    # 5. Topic / Context header without factual assertion
+    if raw.startswith(("在", "而在", "至於", "關於", "根據", "依據", "對於")) and any(raw.endswith(e) for e in ("部分", "方面", "結果", "外", "來看", "而言")):
+        if not _has_actionable_predicate(raw) and not extract_structured_quantities(raw):
+            return ClaimEligibility(False, "Isolated topic or context header without factual assertion.")
+
+    # 6. Must contain actionable predicate OR copular assertion OR quantity with semantic target
+    has_qty = bool(extract_structured_quantities(raw))
+    has_verb = _has_actionable_predicate(raw)
+    has_copula = bool(re.search(r"[為是有]|(?:is|was|were|are|has|have)\b", raw))
+
+    if not has_qty and not has_verb and not has_copula:
+        return ClaimEligibility(False, "Missing actionable predicate, copular assertion, or quantity target.")
+
+    return ClaimEligibility(True, "Eligible atomic proposition.")
+
+
+def is_atomic_proposition_eligible(text: str) -> bool:
+    """Convenience boolean check for atomic proposition eligibility."""
+    return check_atomic_proposition_eligibility(text).eligible
 
 
 def extract_atomic_propositions(
@@ -595,45 +840,31 @@ def extract_atomic_propositions(
     attributions, body, attr_type = _extract_attributions(raw)
     speaker = attributions[0] if attributions else None
 
-    # Decompose into candidate clauses
+    # Decompose into candidate clauses using major delimiters
     major_chunks = re.split(r"[；;\n]", body)
 
     raw_clauses: list[str] = []
     for chunk in major_chunks:
-        # Split on commas / coordinate conjunctions
         sub_chunks = [sc.strip() for sc in re.split(r"[,，]", chunk) if sc.strip()]
-
-        merged_sub: list[str] = []
-        for sc in sub_chunks:
-            has_qty = bool(extract_structured_quantities(sc))
-            has_verb = _has_actionable_predicate(sc)
-
-            # If no verb and no quantity, it is a dependent topic/context fragment -> merge with adjacent clause
-            if not has_qty and not has_verb:
-                if merged_sub:
-                    merged_sub[-1] = merged_sub[-1] + "，" + sc
-                else:
-                    merged_sub.append(sc)
-            else:
-                if merged_sub and not (
-                    extract_structured_quantities(merged_sub[-1])
-                    or _has_actionable_predicate(merged_sub[-1])
-                ):
-                    merged_sub[-1] = merged_sub[-1] + "，" + sc
-                else:
-                    merged_sub.append(sc)
-        raw_clauses.extend(merged_sub)
+        reattached = _reattach_proposition_fragments(sub_chunks)
+        raw_clauses.extend(reattached)
 
     propositions: list[AtomicProposition] = []
     for p_idx, clause in enumerate(raw_clauses):
         c_clean = clause.strip()
         if not c_clean:
             continue
-        c_quantities = tuple(extract_structured_quantities(c_clean))
-        # Clause must have a quantity or have substantive length >= 6 (CJK) / >= 3 words (Latin)
-        if len(c_clean) < 6 and not c_quantities and len(c_clean.split()) < 3:
+
+        # Strip leading coordinating conjunctions from independent propositions
+        c_clean = re.sub(r"^(?:and|but|or|so|yet|且|而|並|然而|此外|另外)[，,\s]+", "", c_clean, flags=re.IGNORECASE).strip()
+        if not c_clean:
             continue
 
+        # Enforce post-decomposition atomic proposition eligibility
+        if not is_atomic_proposition_eligible(c_clean):
+            continue
+
+        c_quantities = tuple(extract_structured_quantities(c_clean))
         c_is_neg = bool(
             _ZH_NEGATION.search(c_clean)
             or any(w in c_clean.lower().split() for w in _EN_NEGATION_WORDS)
@@ -667,27 +898,30 @@ def extract_atomic_propositions(
         )
 
     if not propositions:
-        c_quantities = tuple(extract_structured_quantities(body))
-        c_is_neg = bool(
-            _ZH_NEGATION.search(body)
-            or any(w in body.lower().split() for w in _EN_NEGATION_WORDS)
-        )
-        propositions.append(
-            AtomicProposition(
-                prop_id=f"{article_id}:{sentence_idx}:0",
-                article_id=article_id,
-                sentence_idx=sentence_idx,
-                sentence_text=raw,
-                proposition_text=body,
-                speaker=speaker,
-                modality="statement",
-                is_negated=c_is_neg,
-                quantities=c_quantities,
-                content_tokens=frozenset(_content_tokens(body)),
-                predicate_tokens=frozenset(_predicate_tokens(body)),
-                attribution_type=attr_type,
+        if is_atomic_proposition_eligible(body):
+            c_quantities = tuple(extract_structured_quantities(body))
+            c_is_neg = bool(
+                _ZH_NEGATION.search(body)
+                or any(w in body.lower().split() for w in _EN_NEGATION_WORDS)
             )
-        )
+            c_tokens = frozenset(_content_tokens(body))
+            p_tokens = frozenset(_predicate_tokens(body))
+            propositions.append(
+                AtomicProposition(
+                    prop_id=f"{article_id}:{sentence_idx}:0",
+                    article_id=article_id,
+                    sentence_idx=sentence_idx,
+                    sentence_text=raw,
+                    proposition_text=body,
+                    speaker=speaker,
+                    modality="statement",
+                    is_negated=c_is_neg,
+                    quantities=c_quantities,
+                    content_tokens=c_tokens,
+                    predicate_tokens=p_tokens,
+                    attribution_type=attr_type,
+                )
+            )
 
     return propositions
 
