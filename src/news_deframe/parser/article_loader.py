@@ -28,6 +28,7 @@ Paths outside the project root are fully supported::
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,6 +36,47 @@ from pathlib import Path
 
 #: File extensions recognised as article files.
 SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({".txt"})
+
+_NOISE_LINE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # 1. Pure whitespace/bullets/counters/separators
+    re.compile(r"^[\d\s\-_–—|/•·*#~`=+\.,:;!?，。！？；：、\(\)（）\[\]【】\"\'“”‘’]+$"),
+    # 2. Advertisement / sponsored text / promo cards
+    re.compile(r"^(?:廣告|Ad|AD|Advertisement|Sponsored|贊助商連結|贊助|廣編特輯|業配)[：:\s]*$", re.IGNORECASE),
+    re.compile(r"^【[^】]+】\s*[^。！？!?]{2,50}$"),
+    # 3. Read more / related articles / navigation / window instructions
+    re.compile(r"^(?:請繼續往下閱讀|延伸閱讀|推薦閱讀|相關新聞|相關報導|熱門新聞|點我看更多|更多新聞|最新消息|熱門話題|Read more|Related articles|Recommended|You may also like)[.。…\s]*$", re.IGNORECASE),
+    re.compile(r"^[（(【\[\s]*(?:另開新視窗|另開視窗|點擊看大圖|點擊放大|點圖放大|點此觀看|詳見影片|點我看|點這裡|click here|open in new window)[）)】\]\s]*$", re.IGNORECASE),
+    # 4. Social / follow / subscribe / share
+    re.compile(r"^(?:透過|加入|加入為|追蹤|訂閱|按讚|分享|關注|Follow|Subscribe to|Sign up for)\s*.+$", re.IGNORECASE),
+    # 5. Standalone publisher / media outlet signature without narrative sentence
+    re.compile(r"^[\w\u4e00-\u9fff\s\.-]{2,30}(?:新聞網|日報|電子報|通訊社|廣播公司|電視台|新聞|News|Times|Post|Daily)(?:\s+[\w\.-]+)?$", re.IGNORECASE),
+    # 6. Standalone author signature / date / timestamp / editorial code
+    re.compile(r"^(?:文|記者|特派員|攝影|撰文|編譯|責任編輯|編輯|Author|By)[\s／/：:][^\s]{2,15}(?:／[^\s]{2,15})?$", re.IGNORECASE),
+    re.compile(r"^\d{4}[年\.-]\d{1,2}[月\.-]\d{1,2}日?(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?$"),
+    re.compile(r"^[（(【\[\s]*(?:圖|翻攝|攝影|資料照|中央社|共同社|NHK|路透|美聯社|法新社|Photo|Image|Credit|Source|圖取自|翻攝自|截圖自)[：:\s／/].*[）)】\]\s]*$", re.IGNORECASE),
+)
+
+_TRAILING_METADATA_PATTERN = re.compile(
+    r"\s*[（(【\[](?:翻攝|圖取自|共同社|中央社|美聯社|路透|法新社|編譯|記者|攝影|資料照|NHK|Photo|Image|Credit|Source|X|Twitter|Facebook|FB)[\s\S]*?[）)】\]]\s*(?:\d{5,8})?$",
+    re.IGNORECASE,
+)
+
+_TRAILING_TIMESTAMP_PATTERN = re.compile(r"\s*[(（]\d{1,2}:\d{2}[)）]$")
+
+
+def clean_article_text(raw_text: str) -> str:
+    """Strip generic webpage noise, advertisements, follow prompts, and metadata from article text."""
+    cleaned_lines: list[str] = []
+    for line in raw_text.splitlines():
+        s = line.strip()
+        if not s or any(p.match(s) for p in _NOISE_LINE_PATTERNS):
+            continue
+        s = _TRAILING_METADATA_PATTERN.sub("", s)
+        s = _TRAILING_TIMESTAMP_PATTERN.sub("", s)
+        s = s.strip()
+        if s and not any(p.match(s) for p in _NOISE_LINE_PATTERNS):
+            cleaned_lines.append(s)
+    return "\n".join(cleaned_lines)
 
 
 # ── Data class ────────────────────────────────────────────────────────────────

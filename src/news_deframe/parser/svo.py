@@ -222,6 +222,15 @@ def _collect_participant_span(token: Token) -> str | None:
             if ndep in {"compound", "compound:nn", "name", "flat", "appos", "dobj", "ccomp"} or npos in {"NOUN", "PROPN"}:
                 collected_tokens.append(next_t)
                 max_i += 1
+            elif npos in {"VERB", "X"} and any(
+                ntext.endswith(m) or ntext.startswith(m)
+                for m in (
+                    "城", "綜", "合", "事", "務", "所", "公所", "局", "署", "廳", "部", "院",
+                    "隊", "組", "處", "會", "社", "店", "廠", "館", "園", "站", "港", "橋",
+                )
+            ):
+                collected_tokens.append(next_t)
+                max_i += 1
             elif len(ntext) >= 2 and any(ntext.startswith(t) for t in _ZH_TITLE_ROLE_MORPHEMES):
                 collected_tokens.append(next_t)
                 max_i += 1
@@ -453,20 +462,34 @@ def extract_svo(doc: Doc, lang: Lang | None = None) -> list[SVORecord]:
                             span = _collect_participant_span(sib)
                             if span and span not in objects:
                                 objects.append(span)
-                else:
-                    for sibling in verb.head.children:
-                        if sibling.dep_ in _SUBJECT_DEPS:
-                            span = _collect_participant_span(sibling)
-                            if span:
-                                subjects.append(span)
-
-            # If verb is ccomp of 遭 (e.g. 遭警方逮捕):
-            if verb.head != verb and verb.head.text in {"遭", "遭到"} and verb.dep_ in {"ccomp", "xcomp"}:
-                for sib in verb.head.children:
-                    if sib.dep_ in _ACTIVE_SUBJ_DEPS or sib.dep_ in _PASSIVE_SUBJ_DEPS:
-                        span = _collect_participant_span(sib)
-                        if span and span not in objects:
-                            objects.append(span)
+                elif verb.dep_ == "conj":
+                    # Check if there is an intervening clause-level punctuation between verb.head and verb
+                    tok_range = sent[min(verb.head.i, verb.i) - sent.start:max(verb.head.i, verb.i) - sent.start]
+                    has_punct = any(tok.text in ("，", "；", "。", ",", ";") for tok in tok_range)
+                    if not has_punct:
+                        for sibling in verb.head.children:
+                            if sibling.dep_ in _SUBJECT_DEPS:
+                                span = _collect_participant_span(sibling)
+                                if span and span not in subjects:
+                                    subjects.append(span)
+                    else:
+                        # Search backward within the local clause for a local subject
+                        min_i = max(sent.start, verb.i - 15)
+                        start_i = min_i
+                        for tok in reversed(list(sent[max(0, min_i - sent.start):verb.i - sent.start])):
+                            if tok.text in ("，", "；", "。", ",", ";", "."):
+                                start_i = tok.i + 1
+                                break
+                        clause_tokens = [tok for tok in sent if start_i <= tok.i < verb.i]
+                        for tok in clause_tokens:
+                            if tok.dep_ in _SUBJECT_DEPS or (tok.pos_ in ("NOUN", "PROPN") and tok.dep_ in ("nsubj", "nsubjpass", "compound:nn", "appos", "top")):
+                                head = tok
+                                while head.head.i >= start_i and head.head.i < verb.i and head.head.pos_ in ("NOUN", "PROPN"):
+                                    head = head.head
+                                span = _collect_participant_span(head)
+                                if span and span not in subjects and len(span) >= 2:
+                                    subjects.append(span)
+                                    break
 
             norm_verb = normalize_predicate_text(
                 verb.lemma_ or verb.text,

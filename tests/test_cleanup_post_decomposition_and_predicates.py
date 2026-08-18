@@ -183,7 +183,84 @@ class TestPostDecompositionAtomicEligibility:
         props = extract_atomic_propositions("art_x", 0, sentence)
         assert len(props) == 2
         assert props[0].proposition_text == "The bill passed"
-        assert props[1].proposition_text == "overall spending was reduced by 4 billion dollars."
+        assert props[1].proposition_text == "overall spending was reduced by 4 billion dollars"
+
+    def test_obvious_noise_and_webpage_chrome_rejected(self):
+        """Obvious webpage chrome, ad tags, social follow prompts, and bare numbers are rejected."""
+        noise_cases = [
+            "廣告",
+            "Ad",
+            "請繼續往下閱讀...",
+            "延伸閱讀",
+            "加入為 Google 偏好來源",
+            "另開新視窗",
+            "追蹤中央社",
+            "透過 Google News",
+            "三立新聞網 setn.com",
+            "公視新聞網",
+            "2026年7月28日",
+            "0",
+            "1150728",
+            "5度",
+            "7-11",
+            "7-11、全家便利商店及LAWSON等主要超商業者",
+        ]
+        for text in noise_cases:
+            assert not is_atomic_proposition_eligible(text), f"Expected '{text}' to be rejected as noise/non-propositional"
+
+    def test_causal_concessive_subordinate_reattachment(self):
+        """Subordinate causal and concessive clauses reattach forward to matrix clauses."""
+        s1 = "因後續仍可能有零星餘震，部分建廠工程因安全考量目前暫停。"
+        props1 = extract_atomic_propositions("art_x", 0, s1)
+        assert len(props1) == 1
+        assert "因後續仍可能有零星餘震" in props1[0].proposition_text
+        assert "目前暫停" in props1[0].proposition_text
+
+        s2 = "但因無法從1樓進入建築物，搜救作業一度受阻。"
+        props2 = extract_atomic_propositions("art_x", 0, s2)
+        assert len(props2) == 1
+        assert "無法從1樓進入建築物" in props2[0].proposition_text
+        assert "搜救作業一度受阻" in props2[0].proposition_text
+
+    def test_standalone_causal_and_locative_modifiers_rejected(self):
+        """Standalone causal, locative distance, and dependent conjunction phrases are rejected."""
+        rejected_cases = [
+            "受地震影響",
+            "受熊本機場跑道關閉影響",
+            "受到強烈風暴影響",
+            "長崎東方約80公里處",
+            "花蓮東南方約20公里海域",
+            "市中心北方約5公里處",
+            "及4起民眾困屋內通報",
+            "以及通話狀況影響",
+            "以確認軌道安全",
+            "為確保供電穩定",
+        ]
+        for text in rejected_cases:
+            assert not is_atomic_proposition_eligible(text), f"Expected '{text}' to be rejected as standalone modifier/locative fragment"
+
+    def test_legitimate_short_and_elliptical_propositions_preserved(self):
+        """Legitimate short factual and elliptical propositions are preserved."""
+        valid_cases = [
+            "Three people died.",
+            "Flights were cancelled.",
+            "警方正在調查。",
+            "熊本城外牆崩塌。",
+            "詳細情況調查中。",
+            "震央位於長崎東方約80公里處",
+            "約30家門市受停電影響",
+            "Power was restored.",
+        ]
+        for text in valid_cases:
+            assert is_atomic_proposition_eligible(text), f"Expected '{text}' to be recognized as eligible proposition"
+
+    def test_causal_modifier_reattachment_to_matrix_clause(self):
+        """Causal modifiers correctly reattach to following matrix clauses in sentence decomposition."""
+        sentence = "交通方面，受熊本機場跑道關閉影響，華航及台灣虎航28日往返熊本的航班全數取消。"
+        props = extract_atomic_propositions("art_air", 0, sentence)
+        assert len(props) == 1
+        assert "受熊本機場跑道關閉影響" in props[0].proposition_text
+        assert "航班全數取消" in props[0].proposition_text
 
 
 class TestPredicateQualityAndReconstruction:

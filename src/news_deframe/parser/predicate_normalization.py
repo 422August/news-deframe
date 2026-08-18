@@ -83,6 +83,14 @@ _ZH_DISCOURSE_PREFIXES: frozenset[str] = frozenset({
 _ZH_BOUND_NOMINAL_MORPHEMES: tuple[str, ...] = (
     "費", "案", "額", "處", "員", "總", "例", "部", "所", "法", "局", "院", "籍", "性", "度", "率", "慣",
     "言行", "操行", "品行", "德行", "暴行", "戰", "僵局", "結果", "部分", "方面",
+    "橋", "物", "委", "島", "町", "村", "區", "市", "縣", "鄉", "鎮", "內", "外", "旁", "前", "後", "間",
+    "箱", "框", "架", "車", "船", "機", "門", "民", "便", "餘", "菊", "綜", "造", "線", "路", "站", "廠", "館", "樓", "房", "室",
+)
+
+_ZH_INVALID_VERB_PREFIXES: tuple[str, ...] = (
+    "町", "市", "縣", "鄉", "鎮", "村", "區", "地", "城", "島", "山", "河", "海", "港", "路", "街", "站",
+    "廠", "館", "樓", "房", "門", "車", "機", "船", "電", "水", "火", "風", "震", "物", "後", "前", "內",
+    "外", "中", "布", "查", "籲",
 )
 
 # Established compound action / reporting verbs that legitimately contain bound morphemes
@@ -92,11 +100,23 @@ _ZH_VALID_LEXICAL_COMPOUND_VERBS: frozenset[str] = frozenset({
     "提出", "指出", "表示", "認為", "呼籲", "批評", "譴責", "要求", "答應", "改正", "副署", "抗議",
     "質詢", "備詢", "說明", "強調", "反對", "贊成", "支持", "提案", "達成", "完成", "送到", "延宕",
     "影響", "敲槌", "受訪", "運作", "放寬", "嚴管", "啟動", "重啟", "停用", "查扣", "逮捕", "起訴",
+    "發生", "造成", "導致", "修復", "崩塌", "坍塌", "倒塌", "停駛", "受困", "罹難", "失聯", "疏散",
+    "避難", "歇業", "停業", "停電", "起火", "燃燒", "爆炸", "檢查", "復原", "脫線", "翻覆", "觀測",
+    "測得", "接獲", "通報", "統計", "報導", "回憶", "調查", "確認", "排除", "提醒", "下令", "指示",
+    "評估", "救援", "投入", "恢復", "暫停", "停止", "中斷", "折斷", "摔倒", "跌倒", "砸傷", "扭傷",
+    "割傷", "出血", "錯位", "下陷", "脫落", "關閉", "受創", "受損", "波及", "演練", "修繕", "掌握",
+    "合作", "設立", "申請", "適用", "命名", "重申", "證實", "澄清", "駁斥", "否認", "指控", "指責",
+    "反駁", "坦承", "承認", "透露", "直言", "痛批", "怒轟", "開轟", "疾呼", "下達", "送達", "撤離",
+    "進駐", "封鎖", "解封", "放行", "攔截", "查獲", "破獲", "查緝", "查處", "取締", "移送", "交保",
+    "羈押", "飭回", "定讞", "判刑", "上訴", "駁回", "改判", "獲釋", "釋放", "擴建", "興建", "修建",
+    "新建", "加設", "設置", "清淤", "管制", "分發", "開放", "接種", "核定", "補助", "開徵", "汰換",
+    "停班", "停課", "復工", "開工", "完工", "停工", "加強", "擴充", "巡弋", "稽查", "採購", "興辦",
+    "營運", "修訂", "維護", "溝通", "會商", "研商", "回線", "派出", "拍攝", "出動",
 })
 
 # Common single-character CJK action / reporting verbs
 _ZH_VALID_SINGLE_CHAR_VERBS: frozenset[str] = frozenset(
-    "說稱提簽砍刪凍審查批遭看給訪決讓答派辦降增減買賣宣罰告警讀裁判抓救退換改請催追停封移扣送拒准控表談砍查"
+    "說稱提簽砍刪凍審查批遭看給訪決讓答派辦降增減買賣宣罰告警讀裁判抓救退換改請催追停封移扣送拒准控表談查"
 )
 
 
@@ -112,9 +132,13 @@ class PredicateProvenance:
     confidence: float
 
 
-def is_valid_predicate_token(token: Token | None, text_override: str = "", lang: Lang = "zh") -> bool:
+def is_valid_predicate_token(token: Token | str | None = None, text_override: str = "", lang: Lang = "zh") -> bool:
     """Return True if *token* or *text_override* is a linguistically defensible verbal predicate head."""
-    text = (text_override or (getattr(token, "text", "") if token is not None else "")).strip()
+    if isinstance(token, str):
+        text = (text_override or token).strip()
+        token = None
+    else:
+        text = (text_override or (getattr(token, "text", "") if token is not None else "")).strip()
     if not text:
         return False
 
@@ -162,12 +186,16 @@ def is_valid_predicate_token(token: Token | None, text_override: str = "", lang:
     if len(text) > 1 and any(text.endswith(s) for s in _ZH_INVALID_VERB_SUFFIXES):
         return False
 
-    # Check bound nominal morphemes (e.g. '宣費', '別費', '出總', '政慣', '言行', '大戰')
+    # Check bound nominal/locative morphemes (e.g. '市橋', '後餘', '燃物', '城綜', '宣費')
     if len(text) > 1 and any(text.endswith(m) for m in _ZH_BOUND_NOMINAL_MORPHEMES):
         return False
 
+    # Check nominal/locative/fragment prefixes (e.g. '町觀', '地菊', '市橋', '布避')
+    if len(text) == 2 and any(text.startswith(p) for p in _ZH_INVALID_VERB_PREFIXES):
+        return False
+
     # Check partial aspect prefix + single-char verb fragments (e.g. '將表', '將提', '正調')
-    if len(text) == 2 and text[0] in "將正已欲曾" and text not in _ZH_VALID_LEXICAL_COMPOUND_VERBS:
+    if len(text) == 2 and text[0] in "將正已欲曾要會再" and text not in _ZH_VALID_LEXICAL_COMPOUND_VERBS:
         return False
 
     # Single-character CJK validation

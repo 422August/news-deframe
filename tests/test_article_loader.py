@@ -155,3 +155,55 @@ class TestLoadArticleFiles:
 
         assert len(articles) == 2
         assert [a.article_id for a in articles] == ["a", "b"]
+
+
+class TestCleanArticleText:
+    """Tests for input hygiene and scraped webpage noise stripping."""
+
+    def test_strips_webpage_noise_and_preserves_content(self):
+        from news_deframe.parser.article_loader import clean_article_text
+
+        raw_article = (
+            "某市今晨發生重大火警，警消緊急疏散百名住戶。（中央社）\n"
+            "\n"
+            "0\n"
+            "2026年3月15日\n"
+            "加入為 Google 偏好來源\n"
+            "（另開新視窗）\n"
+            "\n"
+            "火勢在兩小時內獲得控制，現場無人傷亡。\n"
+            "廣告\n"
+            "Ad\n"
+            "【精選建案】市中心景觀名邸 限量席次\n"
+            "請繼續往下閱讀...\n"
+            "\n"
+            "市府宣布啟動災後調查與安置作業（14:30）\n"
+            "延伸閱讀\n"
+            "三立新聞網 setn.com\n"
+            "追蹤中央社\n"
+        )
+
+        cleaned = clean_article_text(raw_article)
+        expected_lines = [
+            "某市今晨發生重大火警，警消緊急疏散百名住戶。",
+            "火勢在兩小時內獲得控制，現場無人傷亡。",
+            "市府宣布啟動災後調查與安置作業",
+        ]
+        assert cleaned == "\n".join(expected_lines)
+
+    def test_english_metadata_stripping(self):
+        from news_deframe.parser.article_loader import clean_article_text
+
+        raw_en = (
+            "A fire broke out in the warehouse on Tuesday morning. (Photo: Reuters)\n"
+            "Follow us on Twitter for live updates\n"
+            "Read more\n"
+            "Firefighters contained the blaze within three hours.\n"
+            "Sponsored\n"
+        )
+        cleaned = clean_article_text(raw_en)
+        expected = (
+            "A fire broke out in the warehouse on Tuesday morning.\n"
+            "Firefighters contained the blaze within three hours."
+        )
+        assert cleaned == expected

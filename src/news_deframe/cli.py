@@ -17,12 +17,14 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import re
 import click
 from rich.console import Console
 
 from news_deframe.parser.spacy_loader import get_nlp
 from news_deframe.parser.svo import extract_svo
 from news_deframe.parser.entities import extract_entity_modifiers
+from news_deframe.parser.article_loader import clean_article_text
 from news_deframe.diff.coverage import compute_coverage
 from news_deframe.formatters.console import render_diff_report
 from news_deframe.formatters.json_export import report_to_json
@@ -38,10 +40,19 @@ def _parse_article(text: str, article_id: str) -> ParsedArticle:
     no ``--lang`` flag is required — Chinese and English articles are handled
     transparently.
     """
-    nlp = get_nlp(text)  # language-aware: detects zh vs en from text
-    doc = nlp(text)
+    cleaned_text = clean_article_text(text)
+    nlp = get_nlp(cleaned_text)  # language-aware: detects zh vs en from text
+    doc = nlp(cleaned_text)
 
-    sentences = [sent.text.strip() for sent in doc.sents if sent.text.strip()]
+    # Reconnect decimal-split fragments in Chinese spaCy tokenization
+    raw_sentences = [sent.text.strip() for sent in doc.sents if sent.text.strip()]
+    sentences: list[str] = []
+    for s in raw_sentences:
+        if sentences and re.search(r"\d+\.$", sentences[-1]) and re.match(r"^\d+", s):
+            sentences[-1] = sentences[-1] + s
+        else:
+            sentences.append(s)
+
     svo_records = extract_svo(doc)
     entity_modifiers = extract_entity_modifiers(doc)
 

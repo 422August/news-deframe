@@ -43,6 +43,7 @@ from typing import NamedTuple
 from pydantic import BaseModel, Field
 
 from news_deframe.schemas import ParsedArticle
+from news_deframe.parser.predicate_normalization import is_valid_predicate_token
 
 
 # Labels that represent human-scale actors or structured social entities.
@@ -96,14 +97,28 @@ _STRUCTURAL_NON_ACTOR_ENDINGS = (
     "廠", "中心", "園區", "保護區", "基地", "變電所", "所", "站",
     "street", "square", "road", "avenue", "area", "direction", "zone", "district", "place", "site", "venue",
     "station", "facility", "center", "plant", "base", "park",
-    # Events / Actions / Processes / Deadlocks
+    # Events / Actions / Processes / Deadlocks / Natural disasters
     "活動", "示威", "集會", "推擠", "衝突", "逮捕", "行動", "勤務", "調查", "過程", "經過", "情形", "事件",
     "結果", "僵局", "大戰", "協商", "審查", "共識", "爭議", "推動", "政務", "義務", "制度", "原則", "政策", "決議", "延宕", "審查延宕",
     "施政", "表決", "爭辯", "比讚", "讚",
+    "地震", "強震", "餘震", "主震", "海嘯", "爆炸", "火災", "大火", "火警", "火勢", "煙霧", "濃煙", "氣爆", "土石流", "風災", "水災",
+    "暴雨", "颱風", "坍方", "災情", "災害", "災難", "事故", "車禍", "出軌", "翻覆", "停電", "停水", "斷電", "斷水", "破裂", "落差", "落石",
     "protest", "rally", "demonstration", "clash", "arrest", "process", "investigation", "procedure", "incident", "operation",
+    "earthquake", "tsunami", "explosion", "fire", "wildfire", "storm", "flood", "disaster", "accident", "blackout", "outage",
     # Fiscal / Budgetary / Statutory concepts
     "預算", "預算案", "總預算", "總預", "歲出", "歲入", "特別費", "媒宣費", "人事費", "事務費", "經費", "金額", "總額", "歲出總額", "額",
     "薪水", "薪資", "工資", "退休金", "加薪", "資遣費", "罰鍰", "規模", "條例", "法規", "法律", "修正案", "憲政慣例", "慣例", "法", "案",
+    # Inanimate physical infrastructure / materials / vehicles / equipment
+    "建築", "建築物", "建物", "外牆", "石牆", "牆面", "屋頂", "天花板", "地板", "地面", "鋼筋", "水泥", "磚瓦", "土石", "瓦礫", "碎片",
+    "設備", "設施", "貨架", "碎紙機", "文件櫃", "窗框", "門窗", "孔洞", "破損", "裂痕", "煙囪", "橋樑", "高架", "路段", "鐵軌", "軌道",
+    "跑道", "車輛", "列車", "班機", "飛機", "直升機", "線路", "網路", "訊號", "通訊", "基地台", "變電箱", "電廠", "核電廠", "水庫", "水壩",
+    "building", "structure", "wall", "roof", "debris", "equipment", "facility", "infrastructure", "runway", "train", "plane", "aircraft",
+    # Measurements / counts / reporting artifacts / statuses
+    "震度", "深度", "級", "公里", "公尺", "人次", "筆", "件", "起", "通報", "報案", "電話", "人數", "傷亡", "人員傷亡",
+    "受傷", "受害", "罹難", "失聯", "死亡", "受困",
+    # Locative settings / Activity concepts
+    "縣內", "市內", "屋內", "境內", "國內", "區內", "廠內", "店內", "校內", "院內",
+    "旅遊", "旅行", "觀光", "交通",
     # Abstract concepts / states / injuries / conduct / outcomes / media
     "計畫", "規定", "秩序", "意見", "權利", "說法", "方式", "資料", "影像", "畫面", "支援", "溝通", "擦傷", "大礙", "傷勢", "傷害", "死傷",
     "舉止", "言行", "舉動", "行為", "言行舉止", "完整", "片段",
@@ -122,7 +137,8 @@ _STRUCTURAL_ACTOR_ENDINGS = (
 )
 
 _UNACCUSATIVE_LOCATIVE_VERBS = frozenset({
-    "發生", "舉行", "happen", "occur", "take place"
+    "發生", "舉行", "觀測", "測得", "感受", "搖晃", "震度", "停電", "受損", "倒塌", "起火", "起",
+    "出現", "位於", "傳出", "有", "遭", "突發", "happen", "occur", "take place", "appear", "stand", "located", "experience",
 })
 
 
@@ -383,6 +399,8 @@ def _extract_svo_candidates(article: ParsedArticle) -> list:
     for record in article.svo_records:
         for span in record.subjects + record.objects:
             text = span.strip()
+            # Strip leading numerical quantifiers and counters (e.g. '4起民眾' -> '民眾', '30名員工' -> '員工')
+            text = re.sub(r"^\d+\s*(?:起|處|間|棟|名|人|個|戶|項|家|列|架|班|艘|位)\s*", "", text).strip()
             if text in seen:
                 continue
             if _normalize_key(text) in non_actor_keys:
@@ -407,7 +425,9 @@ def _candidate_in_span(candidate: str, span: str) -> bool:
     """Return True when candidate is present in span (case-insensitive).
 
     Uses word-boundary matching for ASCII to reduce false positives.
-    Falls back to substring for CJK where word boundaries are not spaces.
+    For CJK, allows substring matching while preventing pure locative/brand modifiers
+    (e.g. '日本' in '日本首相高市早苗', '日本氣象廳', '日本郵便', '熊本' in '永旺夢樂城熊本', '熊本城外牆')
+    from falsely capturing predicates belonging to specific corporate entities, institutions, or officials.
     """
     norm_cand = _normalize_for_matching(candidate)
     norm_span = _normalize_for_matching(span)
@@ -415,18 +435,81 @@ def _candidate_in_span(candidate: str, span: str) -> bool:
     if norm_cand not in norm_span:
         return False
 
-    # CJK: substring match is sufficient
+    if norm_cand == norm_span:
+        return True
+
     has_cjk = any(
         (0x4E00 <= ord(ch) <= 0x9FFF) or (0x3400 <= ord(ch) <= 0x4DBF)
         for ch in norm_cand
     )
     if has_cjk:
+        distinct_compound_suffixes = (
+            "警局", "消防局", "警察", "警消", "警方", "氣象廳", "事務所", "公所", "工廠", "商場", "機場", "分局", "總局",
+            "車站", "站", "港", "門市", "外牆", "石牆", "城", "廠", "橋", "交流道", "夢樂城",
+            "放送", "電視台", "新聞", "報社", "日報", "通訊社", "廣播", "航空", "郵便", "電力",
+            "公司", "會社", "集團", "中心", "園", "所", "署", "廳", "院", "部", "局",
+            "首相", "總統", "市長", "縣長", "部長", "院長", "署長", "局長", "處長", "主席", "總召", "立委", "議員",
+            "知事", "相關人士", "人士", "店員", "職員", "民眾", "市民", "長官", "閣員", "大臣",
+        )
+        valid_continuation_affixes = (
+            "縣", "市", "省", "州", "町", "村", "區", "政府", "當局", "官方", "隊", "代表團", "團", "黨團", "本部",
+        )
+
+        # If span ends with candidate (e.g. 行政院長卓榮泰 ends with 卓榮泰, 日本氣象廳 ends with 氣象廳)
+        if norm_span.endswith(norm_cand):
+            prefix = norm_span[:-len(norm_cand)].strip()
+            if any(prefix.endswith(t) or prefix.startswith(t) for t in (
+                "長", "主席", "總召", "立委", "議員", "部長", "院長", "署長", "局長", "處長",
+                "市長", "縣長", "首相", "總統", "黨", "黨團", "朝野", "在野", "執政",
+            )):
+                return True
+            if len(prefix) <= 2:
+                return True
+            return False
+
+        # If span starts with candidate (e.g. candidate='熊本', span='熊本縣今日發生強震', candidate='索比安', span='索比安當局逮捕...')
+        if norm_span.startswith(norm_cand):
+            rem = norm_span[len(norm_cand):].strip()
+            if any(rem.startswith(d) for d in distinct_compound_suffixes):
+                return False
+            matched_affix = next((a for a in valid_continuation_affixes if rem.startswith(a)), None)
+            if matched_affix:
+                rem_after = rem[len(matched_affix):].strip()
+                if any(rem_after.startswith(d) for d in distinct_compound_suffixes):
+                    return False
+                return True
+            if len(norm_cand) <= 4:
+                return False
+            return True
+
+        # If candidate is inside span (e.g. '高市' in '日本首相高市早苗')
+        if norm_cand in norm_span:
+            idx = norm_span.find(norm_cand)
+            prefix = norm_span[:idx].strip()
+            rem = norm_span[idx + len(norm_cand):].strip()
+            if any(prefix.endswith(t) for t in ("長", "主席", "總召", "立委", "議員", "部長", "院長", "署長", "局長", "處長", "市長", "縣長", "首相", "總統")):
+                if not rem or rem in ("早苗", "院長", "部長", "先生", "女士"):
+                    return True
+            return False
+
         return True
 
-    # ASCII: word-boundary check to avoid partial matches
+    # English / Latin: word-boundary and compound entity protection
     pattern = r"(?<![a-z0-9_])" + re.escape(norm_cand) + r"(?![a-z0-9_])"
-    return bool(re.search(pattern, norm_span))
+    if not re.search(pattern, norm_span):
+        return False
 
+    # Prevent country/city matching within compound company/institution names (e.g. 'Japan' in 'Japan Airlines')
+    words_cand = norm_cand.split()
+    words_span = norm_span.split()
+    if len(words_span) > len(words_cand):
+        org_indicators = {"agency", "airlines", "airport", "association", "authority", "bank", "broadcasting", "bureau", "center", "centre", "company", "corp", "corporation", "council", "court", "department", "force", "group", "hospital", "institute", "ministry", "museum", "news", "office", "party", "police", "post", "press", "service", "station", "times", "union", "university"}
+        span_indicators = set(words_span) & org_indicators
+        cand_indicators = set(words_cand) & org_indicators
+        if span_indicators and not cand_indicators:
+            return False
+
+    return True
 
 def _match_candidate_to_svo(
     candidate: str,
@@ -449,6 +532,13 @@ def _match_candidate_to_svo(
             continue
 
         verb = record.verb or ""
+        if verb and not is_valid_predicate_token(verb):
+            continue
+
+        # Unaccusative occurrence event check: geographic settings of natural occurrences are not active agents
+        is_unaccusative = verb in _UNACCUSATIVE_LOCATIVE_VERBS or any(
+            verb.startswith(v) for v in ("發生", "出現", "傳出", "爆發", "震度", "搖晃", "happen", "occur", "take place")
+        )
 
         if record.is_passive:
             if in_subjects:
@@ -469,6 +559,27 @@ def _match_candidate_to_svo(
                     role="agent",
                     verb=verb,
                     is_passive=True,
+                    modifiers=list(modifiers),
+                ))
+        elif is_unaccusative:
+            if in_subjects:
+                mentions.append(ActorMention(
+                    article_id=article.article_id,
+                    sentence=record.sentence,
+                    surface=candidate,
+                    role="patient",
+                    verb=verb,
+                    is_passive=False,
+                    modifiers=list(modifiers),
+                ))
+            if in_objects:
+                mentions.append(ActorMention(
+                    article_id=article.article_id,
+                    sentence=record.sentence,
+                    surface=candidate,
+                    role="patient",
+                    verb=verb,
+                    is_passive=False,
                     modifiers=list(modifiers),
                 ))
         else:
@@ -544,7 +655,7 @@ def _validate_actor(
     # Check unaccusative locative verbs:
     # If candidate only ever appears as subject of 發生 / 舉行 without other actions, reject as setting
     verbs = [m.verb for m in mentions if m.verb]
-    if verbs and all(v in _UNACCUSATIVE_LOCATIVE_VERBS for v in verbs) and ner_type not in {"PERSON", "PER", "ORG", "NORP"}:
+    if verbs and all(v in _UNACCUSATIVE_LOCATIVE_VERBS or any(v.startswith(u) for u in ("發生", "出現", "傳出", "爆發", "震度", "搖晃")) for v in verbs) and ner_type not in {"PERSON", "PER", "ORG", "NORP"}:
         return False
 
     s1 = ner_type in _ACTOR_NER_LABELS
@@ -630,74 +741,82 @@ def _should_merge(surface_a: str, type_a: str, surface_b: str, type_b: str) -> b
 
     Conservative: requires compatible NER types AND at least one strong
     lexical/abbreviation signal or title+name subsumption.
-
-    SVO-derived candidates (_SVO_DERIVED_TYPE) can be merged with any other
-    candidate when the surface forms match or subsume, because the SVO path may find
-    the same participant that NER independently identified.
     """
     group_a = _type_group(type_a)
     group_b = _type_group(type_b)
 
-    # Allow SVO-derived to merge with any candidate on exact normalized match or subsumption
-    svo_involved = _SVO_DERIVED_TYPE in {type_a, type_b}
-
-    if not svo_involved and group_a != group_b:
+    # Never merge distinct entity classes (e.g. PERSON vs ORG, GEO vs ORG, GEO vs PERSON)
+    if group_a != "svo" and group_b != "svo" and group_a != group_b:
         return False
 
     key_a = _normalize_key(surface_a)
     key_b = _normalize_key(surface_b)
 
-    # Exact normalized match
     if key_a == key_b:
         return True
 
-    # High token overlap (Jaccard >= 0.75)
+    # High token overlap (Jaccard >= 0.75) for multi-word phrases of same group
     if _token_overlap_ratio(surface_a, surface_b) >= 0.75:
         return True
 
-    # Abbreviation relationship (e.g. 立院 <-> 立法院)
-    if _is_abbreviation_of(surface_a, surface_b) or _is_abbreviation_of(surface_b, surface_a):
-        return True
-
-    # Chinese & English Title + Name subsumption:
-    # e.g. '立法院長韓國瑜' <-> '韓國瑜', '行政院長卓榮泰' <-> '卓榮泰', '民眾黨主席黃國昌' <-> '黃國昌'
-    # 'President Biden' <-> 'Biden', 'Senator Smith' <-> 'Smith'
-    for long_k, short_k, long_surf, short_surf in ((key_a, key_b, surface_a, surface_b), (key_b, key_a, surface_b, surface_a)):
-        if len(short_k) >= 2 and len(long_k) > len(short_k):
-            # Exact Title + Name suffix match
-            if long_k.endswith(short_k):
-                prefix = long_k[:-len(short_k)].strip()
-                if any(prefix.endswith(t) or prefix.startswith(t) for t in (
-                    "長", "主席", "總召", "立委", "議員", "參選人", "部長", "院長", "代表", "署長", "局長", "處長",
-                    "president", "minister", "senator", "representative", "director", "chair", "chairman", "spokesperson",
-                )):
+    # 1. PERSON: Title + Name subsumption (e.g. 行政院長卓榮泰 <-> 卓榮泰, President Biden <-> Biden)
+    if (group_a == "person" and group_b == "person") or ("svo" in {group_a, group_b} and {group_a, group_b} <= {"person", "svo"}):
+        for long_k, short_k, long_surf, short_surf in ((key_a, key_b, surface_a, surface_b), (key_b, key_a, surface_b, surface_a)):
+            if len(short_k) >= 2 and len(long_k) > len(short_k):
+                # Suffix / title match (e.g. 行政院長卓榮泰 <-> 卓榮泰)
+                if long_k.endswith(short_k):
+                    prefix = long_k[:-len(short_k)].strip()
+                    if any(prefix.endswith(t) or prefix.startswith(t) for t in (
+                        "長", "主席", "總召", "立委", "議員", "參選人", "部長", "院長", "代表", "署長", "局長", "處長",
+                        "president", "minister", "senator", "representative", "director", "chair", "chairman", "spokesperson",
+                        "首相", "總統", "市長", "縣長",
+                    )):
+                        return True
+                    if len(prefix) <= 2:
+                        return True
+                # Truncated proper name prefix within same entity stem (e.g. 周曉 <-> 周曉芸, 韓國 <-> 韓國瑜)
+                if long_k.startswith(short_k) and len(long_k) - len(short_k) <= 2:
                     return True
+                # Embedded title + name match (e.g. 立法院長韓國瑜 <-> 韓國瑜 or 韓國)
+                if short_k in long_k:
+                    for t in ("長", "主席", "總召", "立委", "議員", "參選人", "部長", "院長", "代表", "署長", "局長", "處長", "首相", "總統"):
+                        if t in long_k:
+                            idx = long_k.rfind(t)
+                            name_part = long_k[idx + len(t):]
+                            if len(name_part) >= 2 and (short_k == name_part or (len(short_k) == 2 and short_k in name_part) or (len(name_part) >= 2 and name_part.startswith(short_k))):
+                                return True
+        return False
 
-            # Title + partial name subsumption: '立法院長韓國瑜' <-> '韓國', '立法院長韓國瑜' <-> '國瑜', '教育部長鄭英耀' <-> '英耀'
-            if short_k in long_k:
-                for t in ("長", "主席", "總召", "立委", "議員", "參選人", "部長", "院長", "代表", "署長", "局長", "處長"):
-                    if t in long_k:
-                        idx = long_k.rfind(t)
-                        name_part = long_k[idx + len(t):]
-                        if len(name_part) >= 2 and (short_k in name_part or name_part in short_k):
-                            return True
-
-            # Party caucus / sub-body subsumption: '立院民進黨團' <-> '民進黨團' <-> '民進黨', '朝野各黨團' <-> '朝野黨團'
-            if "黨團" in long_k and ("黨" in short_k or "黨團" in short_k):
-                if short_k in long_k or (short_k.replace("各", "") in long_k.replace("各", "")):
-                    return True
-
-            # Truncated mention subsumption within same entity stem: '韓國' <-> '韓國瑜', '民進' <-> '民進黨', '周曉' <-> '周曉芸'
-            if (long_k.startswith(short_k) or long_k.endswith(short_k)) and len(long_k) - len(short_k) <= 2:
+    # 2. ORG: Legislative caucus of SAME party (e.g. 民進黨團 <-> 民進黨, 朝野黨團 <-> 朝野)
+    if (group_a == "org" and group_b == "org") or ("svo" in {group_a, group_b} and {group_a, group_b} <= {"org", "svo"}):
+        for long_k, short_k in ((key_a, key_b), (key_b, key_a)):
+            if long_k.startswith(short_k) and any(long_k[len(short_k):] == s for s in ("黨團", "各黨團", "黨", "立院黨團")):
                 return True
+            if ("黨團" in long_k or "黨" in long_k) and ("黨團" in short_k or "黨" in short_k):
+                base_long = long_k.replace("立院", "").replace("各", "")
+                base_short = short_k.replace("立院", "").replace("各", "")
+                if base_long.endswith("黨團") and base_short.endswith("黨"):
+                    if base_long[:-2] == base_short[:-1]:
+                        return True
+                if base_long.endswith("黨團") and base_short.endswith("黨團"):
+                    if base_long == base_short:
+                        return True
+                if base_long == "朝野黨團" and base_short in ("朝野", "朝野各黨團"):
+                    return True
+                if base_short == "民進" and "民進黨" in base_long:
+                    return True
+            # Abbreviation relationship for organizations (e.g. 立院 <-> 立法院)
+            if _is_abbreviation_of(short_k, long_k):
+                return True
+        return False
 
-    # Suffix / head noun match for Chinese compounds & English phrases
-    for suffix in (
-        "警方", "人員", "警員", "參與者", "示威者", "被捕者", "目擊者", "團體", "民眾", "群眾", "政府", "當局",
-        "protesters", "demonstrators", "officers", "citizens", "witnesses", "police", "guards"
-    ):
-        if key_a.endswith(suffix) and key_b.endswith(suffix):
-            return True
+    # 3. GEO: Strict administrative suffix of SAME base place (e.g. 熊本縣 <-> 熊本, 福岡縣 <-> 福岡)
+    if (group_a == "geo" and group_b == "geo") or ("svo" in {group_a, group_b} and {group_a, group_b} <= {"geo", "svo"}):
+        for long_k, short_k in ((key_a, key_b), (key_b, key_a)):
+            if len(short_k) >= 2 and len(long_k) == len(short_k) + 1:
+                if long_k.startswith(short_k) and long_k[-1] in ("縣", "市", "省", "州", "町", "村", "區"):
+                    return True
+        return False
 
     return False
 

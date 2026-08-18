@@ -194,3 +194,48 @@ class TestCategoryN_O_MatrixInvariants:
         for p in matrix.profiles:
             for v in p.associated_verbs:
                 assert is_valid_predicate_token(None, text_override=v, lang="zh") is True
+
+    def test_location_setting_does_not_receive_unrelated_actor_predicates(self, nlp_zh):
+        """A geographic location acting as a setting or nationality specifier does not leak predicates from other entities."""
+        from news_deframe.analysis.actor_resolution import resolve_actors
+        from news_deframe.parser.entities import extract_entity_modifiers
+
+        text = "日本首相高市早苗今日下令自衛隊展開搜救工作。"
+        doc = nlp_zh(text)
+        art = ParsedArticle(
+            article_id="art_leak_test",
+            sentences=[text],
+            svo_records=extract_svo(doc, lang="zh"),
+            entity_modifiers=extract_entity_modifiers(doc),
+        )
+        actors, role_stats = resolve_actors([art])
+        actor_names = [a.canonical_name for a in actors]
+
+        # '高市早苗' / '高市' should receive '下令'
+        # '日本' should NOT receive '下令' or '搜救'
+        for st in role_stats:
+            if st.canonical_name == "日本":
+                assert "下令" not in st.associated_agent_verbs
+                assert "搜救" not in st.associated_agent_verbs
+
+    def test_multiple_orgs_in_same_sentence_clause_local_predicates(self, nlp_zh):
+        """Multiple organizations in the same sentence only receive clause-local predicates."""
+        from news_deframe.analysis.actor_resolution import resolve_actors
+        from news_deframe.parser.entities import extract_entity_modifiers
+
+        text = "日本氣象廳發布警報，消防本部正調查火災，而自衛隊已投入救援。"
+        doc = nlp_zh(text)
+        art = ParsedArticle(
+            article_id="art_multi_org",
+            sentences=[text],
+            svo_records=extract_svo(doc, lang="zh"),
+            entity_modifiers=extract_entity_modifiers(doc),
+        )
+        actors, role_stats = resolve_actors([art])
+        for st in role_stats:
+            if "氣象廳" in st.canonical_name:
+                assert "調查" not in st.associated_agent_verbs
+                assert "救援" not in st.associated_agent_verbs
+            if "自衛隊" in st.canonical_name:
+                assert "發布" not in st.associated_agent_verbs
+                assert "調查" not in st.associated_agent_verbs
