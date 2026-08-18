@@ -140,7 +140,7 @@ class TestClaimClustering:
         )
         art2 = _make_parsed_article(
             "outlet_b",
-            ["Officers arrested suspects."],
+            ["Police arrested suspects."],
         )
 
         embed_fn = _make_keyword_embedder([

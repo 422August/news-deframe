@@ -415,6 +415,317 @@ GOLD_CLAIM_RELATION_ITEMS: list[ClaimRelationGoldItem] = [
         expected_relation="UNRELATED",
         domain="cross_domain",
     ),
+
+    # ── Category A: Same topic, different claims ──────────────────────────────
+    ClaimRelationGoldItem(
+        sent_a="The financial regulator issued a record fine to the bank for compliance violations.",
+        sent_b="The financial regulator revoked the bank's operating license following the audit.",
+        expected_relation="RELATED",
+        domain="banking_crisis",
+    ),
+    ClaimRelationGoldItem(
+        sent_a="電網修復工程已完工，供電恢復正常。",
+        sent_b="電網供電中斷原因仍在調查中，預計需數日釐清。",
+        expected_relation="RELATED",
+        domain="energy_grid",
+    ),
+    ClaimRelationGoldItem(
+        sent_a="Clinical trials for the new vaccine began last Monday.",
+        sent_b="Phase three vaccine trials are expected to conclude by year-end.",
+        expected_relation="RELATED",
+        domain="public_health",
+    ),
+    ClaimRelationGoldItem(
+        sent_a="通訊衛星已成功進入預定軌道並開始運作。",
+        sent_b="通訊衛星發射延誤三週，主因為氣象條件不佳。",
+        expected_relation="RELATED",
+        domain="space_exploration",
+    ),
+
+    # ── Category B: Same event, different speakers, different assertions ───────
+    ClaimRelationGoldItem(
+        sent_a="環保團體批評主管機關審查時程過長，導致污染持續惡化。",
+        sent_b="主管機關表示審查作業按既定程序進行，預計六個月內完成。",
+        expected_relation="RELATED",
+        domain="environmental_reg",
+    ),
+    ClaimRelationGoldItem(
+        sent_a="The manufacturer stated the new battery met all safety certification benchmarks.",
+        sent_b="The regulatory agency requested additional performance data before approving the battery.",
+        expected_relation="RELATED",
+        domain="technology",
+    ),
+    ClaimRelationGoldItem(
+        sent_a="在野黨質疑預算審查缺乏透明度，要求公開完整細目。",
+        sent_b="執政黨強調預算案已依法完成三讀程序，符合程序規定。",
+        expected_relation="RELATED",
+        domain="governance",
+    ),
+
+    # ── Category C: Same proposition, paraphrased ─────────────────────────────
+    ClaimRelationGoldItem(
+        sent_a="先進半導體製造商昨日發生供電中斷事故。",
+        sent_b="晶圓大廠昨日遭遇無預警停電事故。",
+        expected_relation="EQUIVALENT",
+        domain="semiconductor",
+    ),
+    ClaimRelationGoldItem(
+        sent_a="Offshore wind technicians repaired the submarine transmission cable.",
+        sent_b="Marine engineers completed repairs on the undersea power cable.",
+        expected_relation="EQUIVALENT",
+        domain="energy_grid",
+    ),
+    ClaimRelationGoldItem(
+        sent_a="The health authority approved emergency use of the antiviral treatment.",
+        sent_b="Emergency authorization for the antiviral drug was granted by health regulators.",
+        expected_relation="EQUIVALENT",
+        domain="public_health",
+    ),
+
+    # ── Category D: Same proposition, compatible additional detail ────────────
+    ClaimRelationGoldItem(
+        sent_a="生技研發團隊成功開發免冷鏈保存的新型疫苗佐劑。",
+        sent_b="生技研發團隊在國家實驗室成功開發出免冷鏈保存、常溫穩定的新型疫苗佐劑配方。",
+        expected_relation="COMPATIBLE",
+        domain="public_health",
+    ),
+    ClaimRelationGoldItem(
+        sent_a="The central bank raised interest rates by 25 basis points.",
+        sent_b="The central bank's monetary policy committee voted unanimously to raise interest rates by 25 basis points.",
+        expected_relation="COMPATIBLE",
+        domain="banking_crisis",
+    ),
+
+    # ── Category G: Negation ──────────────────────────────────────────────────
+    ClaimRelationGoldItem(
+        sent_a="環保署確認石化廠排放數據符合標準。",
+        sent_b="環保署否認石化廠排放數據符合標準。",
+        expected_relation="CONTRADICTORY",
+        domain="environmental_reg",
+    ),
+    ClaimRelationGoldItem(
+        sent_a="The clinical trial confirmed the vaccine prevented severe disease.",
+        sent_b="The clinical trial did not confirm that the vaccine prevented severe disease.",
+        expected_relation="CONTRADICTORY",
+        domain="public_health",
+    ),
+
+    # ── Category H: Modality ──────────────────────────────────────────────────
+    ClaimRelationGoldItem(
+        sent_a="監管機構已完成對銀行的現場審查。",
+        sent_b="監管機構計畫下個月對銀行展開現場審查。",
+        expected_relation="RELATED",
+        domain="banking_crisis",
+    ),
+    ClaimRelationGoldItem(
+        sent_a="The agency completed the environmental impact assessment.",
+        sent_b="Environmental groups demanded that the agency complete the impact assessment.",
+        expected_relation="RELATED",
+        domain="environmental_reg",
+    ),
+    ClaimRelationGoldItem(
+        sent_a="廠方已完成廢水處理設施升級工程。",
+        sent_b="環保團體要求廠方儘速完成廢水處理設施升級。",
+        expected_relation="RELATED",
+        domain="environmental_reg",
+    ),
+
+    # ── Category I: Quantity disagreement ─────────────────────────────────────
+    ClaimRelationGoldItem(
+        sent_a="工程團隊預估本次晶圓報廢損失約兩千片。",
+        sent_b="市調機構指出受損晶圓數量估計達一萬片。",
+        expected_relation="CONTRADICTORY",
+        domain="semiconductor",
+    ),
+    ClaimRelationGoldItem(
+        sent_a="The new wafer process achieved a yield rate of 85 percent.",
+        sent_b="The new wafer process achieved a yield rate of 42 percent.",
+        expected_relation="CONTRADICTORY",
+        domain="semiconductor",
+    ),
+
+    # ── Category J: Different agent (same action, different actor) ────────────
+    ClaimRelationGoldItem(
+        sent_a="中央銀行宣布調升基準利率。",
+        sent_b="財政部宣布調升基準利率。",
+        expected_relation="RELATED",
+        domain="banking_crisis",
+    ),
+    ClaimRelationGoldItem(
+        sent_a="The environmental agency fined the petrochemical plant for violations.",
+        sent_b="The municipal government fined the petrochemical plant for violations.",
+        expected_relation="RELATED",
+        domain="environmental_reg",
+    ),
+
+    # ── Category L: Chinese-language pairs ────────────────────────────────────
+    ClaimRelationGoldItem(
+        sent_a="廠區緊急備用發電機在五分鐘內全面啟動。",
+        sent_b="備用發電機迅速在五分鐘內啟動維持關鍵機台運轉。",
+        expected_relation="EQUIVALENT",
+        domain="energy_grid",
+    ),
+    ClaimRelationGoldItem(
+        sent_a="衛生署表示將優先審核該項專利技術。",
+        sent_b="國際非政府組織呼籲儘速將此技術授權開發中國家。",
+        expected_relation="RELATED",
+        domain="public_health",
+    ),
+
+    # ── Category M: Non-political domains ────────────────────────────────────
+    ClaimRelationGoldItem(
+        sent_a="A freight train derailed near the river bridge, blocking the main line.",
+        sent_b="The freight train left the tracks at the bridge crossing, halting main line services.",
+        expected_relation="EQUIVALENT",
+        domain="transportation",
+    ),
+    ClaimRelationGoldItem(
+        sent_a="The earthquake measuring 6.4 struck the coastal region at dawn.",
+        sent_b="Rescue teams deployed to the coastal region following the seismic event.",
+        expected_relation="RELATED",
+        domain="disaster",
+    ),
+    ClaimRelationGoldItem(
+        sent_a="研究團隊完成新型固態電池充放電循環測試，循環壽命達三千次。",
+        sent_b="固態電池測試結果顯示循環壽命達到三千次充放電週期。",
+        expected_relation="EQUIVALENT",
+        domain="technology",
+    ),
+    ClaimRelationGoldItem(
+        sent_a="The research team demonstrated that the new material conducts electricity at room temperature without resistance.",
+        sent_b="Scientists confirmed room-temperature superconductivity in the newly synthesized compound.",
+        expected_relation="EQUIVALENT",
+        domain="science",
+    ),
+]
+
+
+# ── Gold False-Merge Pair Items ───────────────────────────────────────────────
+# Pairs that must NEVER be classified as EQUIVALENT or COMPATIBLE.
+# These directly test the false-merge safeguard.
+
+
+@dataclass(frozen=True)
+class FalseMergeGoldItem:
+    """Gold annotation for false-merge safeguard testing.
+
+    Both sentences share a topic or entity, but must not be merged as the
+    same claim.  expected_equivalent must always be False.
+    """
+
+    sent_a: str
+    sent_b: str
+    reason: str   # Human-readable description of why these must not merge
+    category: str  # A, B, G, H, I, J, etc.
+    domain: str
+
+
+GOLD_FALSE_MERGE_PAIRS: list[FalseMergeGoldItem] = [
+    # Category A: Same topic, different claims
+    FalseMergeGoldItem(
+        sent_a="The financial regulator imposed a fine on the bank for compliance failures.",
+        sent_b="The financial regulator cleared the bank of all compliance violations.",
+        reason="Same actor + topic, but opposite factual outcomes (penalty vs clearance).",
+        category="A",
+        domain="banking_crisis",
+    ),
+    FalseMergeGoldItem(
+        sent_a="監管機關已對廠商完成行政調查並結案。",
+        sent_b="監管機關宣布對廠商展開全面行政調查。",
+        reason="Investigation completed vs initiated — opposite temporal facts.",
+        category="A",
+        domain="environmental_reg",
+    ),
+    # Category B: Different speakers, different assertions
+    FalseMergeGoldItem(
+        sent_a="Researchers argued that the pipeline delay was caused by funding shortfalls.",
+        sent_b="Government officials stated that the pipeline delay resulted from adverse weather conditions.",
+        reason="Same delay event, two different causal claims from different speakers.",
+        category="B",
+        domain="technology",
+    ),
+    FalseMergeGoldItem(
+        sent_a="反對黨質疑行政部門的預算審查程序缺乏透明度。",
+        sent_b="行政部門強調預算審查均依法定程序完成，資料均已公開。",
+        reason="Same budget review context; one criticises transparency, one defends it.",
+        category="B",
+        domain="governance",
+    ),
+    # Category G: Negation conflict
+    FalseMergeGoldItem(
+        sent_a="The vaccine trial confirmed efficacy against the new variant.",
+        sent_b="The vaccine trial did not confirm efficacy against the new variant.",
+        reason="Positive vs negated claim on the same proposition.",
+        category="G",
+        domain="public_health",
+    ),
+    FalseMergeGoldItem(
+        sent_a="環保署確認該廠廢水排放達到法定標準。",
+        sent_b="環保署否認該廠廢水排放達到法定標準。",
+        reason="Affirmative vs negated form of identical proposition.",
+        category="G",
+        domain="environmental_reg",
+    ),
+    # Category H: Modality — completed fact vs future plan
+    FalseMergeGoldItem(
+        sent_a="The grid operator restored power to all affected substations.",
+        sent_b="The grid operator plans to restore power to the affected substations by next week.",
+        reason="Completed fact vs future plan — different temporal status of same event.",
+        category="H",
+        domain="energy_grid",
+    ),
+    FalseMergeGoldItem(
+        sent_a="研究機構完成新型疫苗的臨床三期試驗。",
+        sent_b="研究機構計畫在明年啟動新型疫苗的臨床三期試驗。",
+        reason="Completed trial vs future plan to begin trial.",
+        category="H",
+        domain="public_health",
+    ),
+    # Category I: Quantity conflict
+    FalseMergeGoldItem(
+        sent_a="The flood damaged approximately 200 homes in the affected zone.",
+        sent_b="The flood damaged approximately 2,000 homes in the affected zone.",
+        reason="Same event, same proposition skeleton, but 10× quantity conflict.",
+        category="I",
+        domain="disaster",
+    ),
+    FalseMergeGoldItem(
+        sent_a="衛星在距地面三百公里軌道順利運作。",
+        sent_b="衛星在距地面三萬六千公里軌道順利運作。",
+        reason="Same satellite, same action, orbit altitude differs 120×.",
+        category="I",
+        domain="space_exploration",
+    ),
+    # Category J: Different agent (same action type)
+    FalseMergeGoldItem(
+        sent_a="The health ministry approved the new treatment protocol.",
+        sent_b="The hospital association approved the new treatment protocol.",
+        reason="Same action (approval of protocol), materially different agents.",
+        category="J",
+        domain="public_health",
+    ),
+    FalseMergeGoldItem(
+        sent_a="中央氣象局發布海上颱風警報。",
+        sent_b="地方政府發布海上颱風警報。",
+        reason="Same warning action, different issuing agents (national vs local).",
+        category="J",
+        domain="disaster",
+    ),
+    # Cross-category: High embedding similarity but different propositions
+    FalseMergeGoldItem(
+        sent_a="The semiconductor firm expanded its chip fabrication capacity.",
+        sent_b="The semiconductor firm reduced its chip fabrication workforce.",
+        reason="Same actor + domain; opposite business decisions — expansion vs reduction.",
+        category="A",
+        domain="semiconductor",
+    ),
+    FalseMergeGoldItem(
+        sent_a="航太公司宣布衛星發射任務成功完成。",
+        sent_b="航太公司宣布衛星發射任務因技術問題暫停。",
+        reason="Same actor + event type; opposite outcomes — success vs suspension.",
+        category="A",
+        domain="space_exploration",
+    ),
 ]
 
 

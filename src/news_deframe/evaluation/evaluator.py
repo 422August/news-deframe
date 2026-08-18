@@ -39,6 +39,7 @@ from news_deframe.evaluation.gold_datasets import (
     GOLD_ACTOR_ITEMS,
     GOLD_CLAIM_RELATION_ITEMS,
     GOLD_CLUSTERING_CORPORA,
+    GOLD_FALSE_MERGE_PAIRS,
 )
 from news_deframe.evaluation.metrics import (
     ClassificationMetrics,
@@ -47,6 +48,22 @@ from news_deframe.evaluation.metrics import (
     calculate_confusion_matrix,
     calculate_clustering_metrics,
 )
+
+
+@dataclass
+class FalseMergeMetrics:
+    """Explicit false-merge evaluation results.
+
+    False merges are the primary validity threat in this research tool.
+    They must be reported separately rather than hidden in a composite score.
+    """
+
+    total_pairs: int
+    false_merge_count: int
+    false_merge_rate: float
+    false_split_count: int = 0          # Unused in false-merge-only evaluation
+    false_split_rate: float = 0.0
+    by_category: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -61,6 +78,10 @@ class EvaluationReport:
     claim_relation_metrics: ClassificationMetrics
     claim_relation_confusion_matrix: dict[str, dict[str, int]]
     clustering_metrics: list[ClusteringMetrics]
+    false_merge_metrics: FalseMergeMetrics
+    equivalence_precision: float
+    equivalence_recall: float
+    equivalence_f1: float
     overall_score: float
 
 
@@ -253,6 +274,51 @@ def evaluate_claim_relations() -> tuple[ClassificationMetrics, dict[str, dict[st
     return clf_metrics, confusion
 
 
+def evaluate_false_merges() -> "FalseMergeMetrics":
+    """Evaluate false-merge safety on the GOLD_FALSE_MERGE_PAIRS set.
+
+    Each pair in GOLD_FALSE_MERGE_PAIRS must NOT be classified as EQUIVALENT
+    or COMPATIBLE.  A false merge occurs when the verifier incorrectly
+    marks such a pair as equivalent.
+
+    Returns
+    -------
+    FalseMergeMetrics
+        Total pairs, false-merge count and rate, and breakdown by category.
+    """
+    from news_deframe.diff.aligner import embed_sentences
+    import numpy as np
+
+    sents_a = [item.sent_a for item in GOLD_FALSE_MERGE_PAIRS]
+    sents_b = [item.sent_b for item in GOLD_FALSE_MERGE_PAIRS]
+
+    embs_a = embed_sentences(sents_a)
+    embs_b = embed_sentences(sents_b)
+
+    false_merge_count = 0
+    by_category: dict[str, int] = {}
+
+    for idx, item in enumerate(GOLD_FALSE_MERGE_PAIRS):
+        sim = float(np.dot(embs_a[idx], embs_b[idx]))
+        res = verify_claim_equivalence(item.sent_a, item.sent_b, sim)
+
+        if res.is_equivalent:
+            # This is a false merge
+            false_merge_count += 1
+            cat = item.category
+            by_category[cat] = by_category.get(cat, 0) + 1
+
+    total = len(GOLD_FALSE_MERGE_PAIRS)
+    rate = round(false_merge_count / total, 4) if total > 0 else 0.0
+
+    return FalseMergeMetrics(
+        total_pairs=total,
+        false_merge_count=false_merge_count,
+        false_merge_rate=rate,
+        by_category=by_category,
+    )
+
+
 def evaluate_clustering() -> list[ClusteringMetrics]:
     """Evaluate 2-stage multi-article claim clustering against multi-article gold corpora."""
     results = []
@@ -280,26 +346,39 @@ def evaluate_clustering() -> list[ClusteringMetrics]:
 
 
 def run_evaluation() -> EvaluationReport:
-    """Run all evaluation tasks and compute the comprehensive report."""
+    """Run all evaluation tasks and compute the comprehensive report.
+
+    False-merge metrics are reported separately and explicitly.
+    The composite overall_score is penalised by false-merge rate to prevent
+    a high composite score from masking research-invalid false merges.
+    """
     svo_m, passive_m = evaluate_svo()
     pred_val_m, pred_norm_acc = evaluate_predicates()
     actor_m = evaluate_actors()
     claim_rel_m, confusion = evaluate_claim_relations()
     clust_m_list = evaluate_clustering()
+    fm_metrics = evaluate_false_merges()
 
     avg_clust_f1 = sum(m.pairwise_f1 for m in clust_m_list) / len(clust_m_list) if clust_m_list else 1.0
 
+    # False-merge penalty: each false merge reduces overall score
+    fm_penalty = fm_metrics.false_merge_rate * 0.20
+
     overall_score = round(
-        (
-            svo_m.f1 * 0.15
-            + passive_m.f1 * 0.10
-            + pred_val_m.f1 * 0.15
-            + pred_norm_acc * 0.10
-            + actor_m.f1 * 0.20
-            + claim_rel_m.f1 * 0.15
-            + avg_clust_f1 * 0.15
-        )
-        * 100.0,
+        max(
+            0.0,
+            (
+                svo_m.f1 * 0.15
+                + passive_m.f1 * 0.10
+                + pred_val_m.f1 * 0.15
+                + pred_norm_acc * 0.10
+                + actor_m.f1 * 0.20
+                + claim_rel_m.f1 * 0.15
+                + avg_clust_f1 * 0.15
+                - fm_penalty
+            )
+            * 100.0,
+        ),
         2,
     )
 
@@ -312,5 +391,9 @@ def run_evaluation() -> EvaluationReport:
         claim_relation_metrics=claim_rel_m,
         claim_relation_confusion_matrix=confusion,
         clustering_metrics=clust_m_list,
+        false_merge_metrics=fm_metrics,
+        equivalence_precision=claim_rel_m.precision,
+        equivalence_recall=claim_rel_m.recall,
+        equivalence_f1=claim_rel_m.f1,
         overall_score=overall_score,
     )
