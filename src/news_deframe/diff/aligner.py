@@ -20,15 +20,39 @@ _model: Optional[Any] = None  # SentenceTransformer, imported lazily
 
 
 def _get_model() -> "Any":
-    """Return a cached SentenceTransformer instance (thread-safe lazy load)."""
+    """Return a cached SentenceTransformer instance (thread-safe lazy load).
+
+    Downloads ``paraphrase-multilingual-MiniLM-L12-v2`` from HuggingFace Hub
+    on the first call if not already cached locally.  Subsequent calls within
+    the same process reuse the cached instance without I/O overhead.
+
+    Raises
+    ------
+    RuntimeError
+        When ``sentence-transformers`` is not installed or the model cannot be
+        downloaded (e.g. no network access).
+    """
     global _model
     if _model is not None:
         return _model
     with _lock:
         if _model is not None:
             return _model
-        from sentence_transformers import SentenceTransformer  # lazy import
-        _model = SentenceTransformer(_EMBED_MODEL_NAME)
+        try:
+            from sentence_transformers import SentenceTransformer  # lazy import
+        except ImportError as exc:
+            raise RuntimeError(
+                "sentence-transformers is not installed. Install it with:\n\n"
+                "    pip install sentence-transformers\n"
+            ) from exc
+        print(f"Loading multilingual semantic embedding model '{_EMBED_MODEL_NAME}'...")
+        try:
+            _model = SentenceTransformer(_EMBED_MODEL_NAME)
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"Failed to load semantic embedding model '{_EMBED_MODEL_NAME}'.\n"
+                "Please check your network connection or HuggingFace Hub availability.\n"
+            ) from exc
     return _model
 
 

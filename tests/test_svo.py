@@ -328,45 +328,63 @@ class TestLanguageDetection:
         assert detect_language(text) == "en"
 
     def test_get_nlp_for_lang_routes_correctly(self):
-        """get_nlp_for_lang calls spacy.load with the right model name."""
+        """get_nlp_for_lang calls spacy.load with the right model name.
+
+        spacy.util.is_package is patched to True so the auto-download guard in
+        get_nlp_model() is bypassed — the test verifies routing, not download.
+        """
         from news_deframe.parser.spacy_loader import get_nlp_for_lang, _cache, ZH_MODEL, EN_MODEL
 
         fake_model = MagicMock()
 
         with patch("news_deframe.parser.spacy_loader._cache", {}):
-            with patch("spacy.load", return_value=fake_model) as mock_load:
-                get_nlp_for_lang("en")
-                mock_load.assert_called_once_with(EN_MODEL)
+            with patch("spacy.util.is_package", return_value=True):
+                with patch("spacy.load", return_value=fake_model) as mock_load:
+                    get_nlp_for_lang("en")
+                    mock_load.assert_called_once_with(EN_MODEL)
 
         with patch("news_deframe.parser.spacy_loader._cache", {}):
-            with patch("spacy.load", return_value=fake_model) as mock_load:
-                get_nlp_for_lang("zh")
-                mock_load.assert_called_once_with(ZH_MODEL)
+            with patch("spacy.util.is_package", return_value=True):
+                with patch("spacy.load", return_value=fake_model) as mock_load:
+                    get_nlp_for_lang("zh")
+                    mock_load.assert_called_once_with(ZH_MODEL)
 
     def test_get_nlp_uses_text_for_detection(self):
-        """get_nlp(text) routes to the correct model based on detected language."""
+        """get_nlp(text) routes to the correct model based on detected language.
+
+        spacy.util.is_package is patched to True so the auto-download guard in
+        get_nlp_model() is bypassed — the test verifies routing, not download.
+        """
         from news_deframe.parser.spacy_loader import get_nlp, EN_MODEL, ZH_MODEL
 
         fake_model = MagicMock()
 
         with patch("news_deframe.parser.spacy_loader._cache", {}):
-            with patch("spacy.load", return_value=fake_model) as mock_load:
-                get_nlp("Police arrested a suspect.")
-                mock_load.assert_called_once_with(EN_MODEL)
+            with patch("spacy.util.is_package", return_value=True):
+                with patch("spacy.load", return_value=fake_model) as mock_load:
+                    get_nlp("Police arrested a suspect.")
+                    mock_load.assert_called_once_with(EN_MODEL)
 
         with patch("news_deframe.parser.spacy_loader._cache", {}):
-            with patch("spacy.load", return_value=fake_model) as mock_load:
-                get_nlp("警察逮捕了男子。")
-                mock_load.assert_called_once_with(ZH_MODEL)
+            with patch("spacy.util.is_package", return_value=True):
+                with patch("spacy.load", return_value=fake_model) as mock_load:
+                    get_nlp("警察逮捕了男子。")
+                    mock_load.assert_called_once_with(ZH_MODEL)
 
     def test_missing_en_model_raises_runtime_error(self):
-        """RuntimeError with install instructions when en_core_web_trf is absent."""
+        """RuntimeError with install instructions when en_core_web_trf is absent.
+
+        is_package returns True so the download path is skipped; spacy.load then
+        raises OSError (simulating a corrupted/missing model file) which should
+        be re-raised as a RuntimeError with the model name in the message.
+        """
         from news_deframe.parser.spacy_loader import get_nlp_for_lang, EN_MODEL
 
         with patch("news_deframe.parser.spacy_loader._cache", {}):
-            with patch("spacy.load", side_effect=OSError("not found")):
-                with pytest.raises(RuntimeError, match=EN_MODEL):
-                    get_nlp_for_lang("en")
+            with patch("spacy.util.is_package", return_value=True):
+                with patch("spacy.load", side_effect=OSError("not found")):
+                    with pytest.raises(RuntimeError, match=EN_MODEL):
+                        get_nlp_for_lang("en")
 
 
 # ─── Tests: passive_ratio ─────────────────────────────────────────────────────

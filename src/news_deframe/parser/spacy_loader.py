@@ -86,17 +86,77 @@ def detect_language(text: str) -> Lang:
     return "zh" if (cjk_count / alpha_count) >= _CJK_THRESHOLD else "en"
 
 
-def get_nlp_for_lang(lang: Lang) -> "Language":
-    """Return a cached spaCy pipeline for *lang* (``'zh'`` or ``'en'``).
+def get_nlp_model(model_name: str = "zh_core_web_trf") -> "Language":
+    """Return a loaded spaCy model, auto-downloading it when not yet installed.
 
-    The pipeline is loaded at most once and then reused.  Thread-safe via
-    double-checked locking.
+    This is the **unified entry point** for obtaining any spaCy model.  It
+    checks whether *model_name* is already installed in the current environment
+    and, if not, downloads it automatically before loading.  All callers
+    throughout the package should use this function instead of calling
+    ``spacy.load()`` directly.
+
+    Parameters
+    ----------
+    model_name:
+        The spaCy model package name (e.g. ``"zh_core_web_trf"`` or
+        ``"en_core_web_trf"``).  Defaults to ``"zh_core_web_trf"``.
+
+    Returns
+    -------
+    A loaded ``spacy.Language`` instance.
 
     Raises
     ------
     RuntimeError
-        When the required spaCy model has not been downloaded, with a clear
-        instruction on how to fix it.
+        When spaCy is not installed, or when the model cannot be downloaded
+        (e.g. no network access or insufficient permissions).
+    """
+    try:
+        import spacy  # lazy import – spacy not required at module load time
+
+        if not spacy.util.is_package(model_name):
+            print(f"Downloading language model '{model_name}'...")
+            try:
+                spacy.cli.download(model_name)
+            except SystemExit:
+                # spacy.cli.download calls sys.exit(0) on success in some versions
+                pass
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(
+                    f"Failed to auto-download spaCy model '{model_name}'.\n"
+                    "Please check your network connection and package permissions, "
+                    "or install manually:\n\n"
+                    f"    python -m spacy download {model_name}\n"
+                ) from exc
+
+        return spacy.load(model_name)
+
+    except ImportError as exc:
+        raise RuntimeError(
+            "spaCy is not installed. Install it with:\n\n"
+            "    pip install spacy\n"
+        ) from exc
+    except OSError as exc:
+        raise RuntimeError(
+            f"spaCy model '{model_name}' could not be loaded after download.\n"
+            "Try installing it manually:\n\n"
+            f"    python -m spacy download {model_name}\n"
+        ) from exc
+
+
+def get_nlp_for_lang(lang: Lang) -> "Language":
+    """Return a cached spaCy pipeline for *lang* (``'zh'`` or ``'en'``).
+
+    The pipeline is loaded at most once and then reused.  Thread-safe via
+    double-checked locking.  Model installation is handled automatically by
+    :func:`get_nlp_model` — no manual ``python -m spacy download`` step
+    is required.
+
+    Raises
+    ------
+    RuntimeError
+        When the required spaCy model cannot be loaded or downloaded, with a
+        clear instruction on how to fix it manually.
     """
     if lang in _cache:
         return _cache[lang]
@@ -107,7 +167,6 @@ def get_nlp_for_lang(lang: Lang) -> "Language":
 
         model_name = ZH_MODEL if lang == "zh" else EN_MODEL
         try:
-            import spacy  # lazy import – spacy not required at module load time
             from spacy.language import Language
 
             try:
@@ -120,7 +179,7 @@ def get_nlp_for_lang(lang: Lang) -> "Language":
             except ValueError:
                 pass
 
-            loaded = spacy.load(model_name)
+            loaded = get_nlp_model(model_name)
             if "news_deframe_sentencizer" not in loaded.pipe_names:
                 # zh_core_web_trf has no 'parser'; insert before 'senter' if
                 # available, otherwise append to the end of the pipeline.
