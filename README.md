@@ -60,35 +60,42 @@ The output is evidence for human interpretation, not a verdict.
 ## Requirements
 
 * Python 3.10+
-* `zh_core_web_trf` for Chinese
-* `en_core_web_trf` for English
-* `paraphrase-multilingual-MiniLM-L12-v2` for multilingual semantic embeddings
 
-The sentence-transformer model is downloaded automatically on first use.
+The following models are **downloaded automatically on first use** — no manual setup required:
 
-spaCy models are loaded lazily, so only the model required for the language being analysed needs to be installed.
+| Model | Purpose |
+|-------|---------|
+| `zh_core_web_trf` | Chinese NLP pipeline (spaCy) |
+| `en_core_web_trf` | English NLP pipeline (spaCy) |
+| `paraphrase-multilingual-MiniLM-L12-v2` | Multilingual semantic embeddings (sentence-transformers) |
+
+Only the model needed for the language being analysed is loaded. If Chinese-only articles are used, the English model is never downloaded.
 
 ---
 
 ## Installation
 
-Install the project with development dependencies:
+Clone the repository and install:
+
+```bash
+git clone https://github.com/422August/news-deframe.git
+cd news-deframe
+pip install -e .
+```
+
+That's it. On first run, any missing language models are downloaded automatically:
+
+```
+Downloading language model 'zh_core_web_trf'...
+Loading multilingual semantic embedding model 'paraphrase-multilingual-MiniLM-L12-v2'...
+```
+
+For development (includes pytest):
 
 ```bash
 pip install -e ".[dev]"
 ```
 
-Install the spaCy model(s) you need:
-
-```bash
-# Chinese
-python -m spacy download zh_core_web_trf
-
-# English
-python -m spacy download en_core_web_trf
-```
-
----
 
 # Usage
 
