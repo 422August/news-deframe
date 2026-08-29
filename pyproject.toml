@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "news-deframe"
-version = "0.1.0"
-description = "Objective structural analysis and comparative framing dissection between two news articles"
+version = "1.0.0"
+description = "Objective structural analysis and comparative framing dissection between news articles"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = { text = "GPL-v3" }
 authors = [{ name = "news-deframe contributors" }]
 keywords = ["nlp", "news", "framing", "analysis", "chinese"]
 classifiers = [
