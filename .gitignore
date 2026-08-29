@@ -1,9 +1,0 @@
-__pycache__/
-*.py[cod]
-*$py.class
-.pytest_cache/
-.coverage
-*.egg-info/
-articles/**/*.txt
-!articles/**/.gitkeep
-articles_en/**/*.txt
