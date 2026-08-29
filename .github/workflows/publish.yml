@@ -3,7 +3,7 @@ name: Publish Python Package to PyPI
 on:
   push:
     tags:
-      - 'v*' # 當您在 Git 推送以 v 開頭的標籤（例如 v0.1.0）時，就會觸發這個自動化流程
+      - 'v*' # 當推送以 v 開頭的標籤（例如 v1.1.4）時觸發
 
 jobs:
   build:
@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: 檢出原始碼
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 完整拉取 Git 歷史與 Tags，供 setuptools-scm 自動解析版本號
 
       - name: 設定 Python 環境
         uses: actions/setup-python@v5
@@ -38,7 +40,7 @@ jobs:
     environment:
       name: pypi
     permissions:
-      id-token: write # 這是使用 PyPI 受信任發布者（OIDC）最核心的安全權限
+      id-token: write # PyPI Trusted Publisher (OIDC) 權限
 
     steps:
       - name: 下載打包成果
