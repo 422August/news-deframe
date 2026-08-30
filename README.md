@@ -54,6 +54,7 @@ The output is evidence for human interpretation, not a verdict.
 | **Presentation Tiers**     |    —   |     ✓     | Concise default summary, `--details` for coding, `--verbose` for diagnostics|
 | **Rich Terminal Reports**  |    ✓   |     ✓     | Terminal-width-aware, human-readable colour reports                         |
 | **JSON Export**            |    ✓   |     ✓     | Structured Pydantic v2 output for research and downstream processing        |
+| **Browser UI**             |    ✓   |     ✓     | Built-in HTML interface — upload files, adjust settings, view results in-browser |
 
 ---
 
@@ -98,6 +99,37 @@ pip install -e ".[dev]"
 
 
 # Usage
+
+## Browser UI
+
+For a quick, no-command workflow, start the built-in web interface:
+
+```bash
+news-deframe --ui
+```
+
+This launches a local server (default `http://127.0.0.1:8080`) and opens it in your browser automatically.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--port PORT` | `8080` | Port to listen on |
+| `--host HOST` | `127.0.0.1` | Bind address (`0.0.0.0` to expose on the network) |
+
+```bash
+# Custom port
+news-deframe --ui --port 9090
+
+# Expose to LAN / Docker / Codespaces
+news-deframe --ui --host 0.0.0.0 --port 8080
+```
+
+The browser UI supports the full `diff` and `analyze` workflows: upload `.txt` files, drag-and-drop, adjust the similarity threshold with a slider, and inspect results rendered as structured cards. Raw JSON output is always included at the bottom of each result.
+
+No extra packages are required — the server uses Python's built-in `http.server`.
+
+Press **Ctrl+C** in the terminal to stop the server.
+
+---
 
 ## Event-Level Analysis
 
@@ -435,10 +467,12 @@ news-deframe/
 │       │   ├── consensus.py
 │       │   ├── event.py
 │       │   └── schemas.py
-│       └── formatters/
-│           ├── console.py
-│           ├── event_console.py
-│           └── json_export.py
+│       ├── formatters/
+│       │   ├── console.py
+│       │   ├── event_console.py
+│       │   └── json_export.py
+│       └── ui/
+│           └── server.py          ← built-in HTML web server (--ui flag)
 ├── pyproject.toml
 └── README.md
 ```
@@ -518,6 +552,8 @@ Tests cover both the original pairwise workflow and event-level functionality, i
 **Testability.** NLP and embedding layers can be mocked so the test suite remains fast and offline-safe.
 
 **Machine-readable results.** Console output is designed for humans, while JSON output preserves structured evidence for downstream analysis.
+
+**Zero-dependency UI.** The browser interface uses Python's built-in `http.server` — no additional packages are required.
 
 ---
 

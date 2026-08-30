@@ -4,6 +4,7 @@ Usage
 -----
     news-deframe diff <file_a> <file_b> [--threshold FLOAT] [--format console|json]
     news-deframe analyze <folder_or_files…>  [--threshold FLOAT] [--format console|json]
+    news-deframe --ui [--port PORT] [--host HOST]
 
 Examples
 --------
@@ -11,6 +12,8 @@ Examples
     news-deframe diff article_a.txt article_b.txt --threshold 0.5 --format json
     news-deframe analyze articles/event_001/
     news-deframe analyze a.txt b.txt c.txt --threshold 0.5
+    news-deframe --ui
+    news-deframe --ui --port 9090
 """
 from __future__ import annotations
 
@@ -64,9 +67,41 @@ def _parse_article(text: str, article_id: str) -> ParsedArticle:
     )
 
 
-@click.group()
-def main() -> None:
-    """news-deframe – structural framing analysis for news articles."""
+
+
+@click.group(invoke_without_command=True)
+@click.option(
+    "--ui",
+    is_flag=True,
+    default=False,
+    help="Launch the browser-based web UI (HTML interface).",
+)
+@click.option(
+    "--port",
+    default=8080,
+    show_default=True,
+    type=click.IntRange(1, 65535),
+    help="Port for the web UI server (only used with --ui).",
+)
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    show_default=True,
+    help="Host/address to bind the web UI server (only used with --ui).",
+)
+@click.pass_context
+def main(ctx: click.Context, ui: bool, port: int, host: str) -> None:
+    """news-deframe – structural framing analysis for news articles.
+
+    Run ``news-deframe --ui`` to open the browser-based interface.
+    """
+    if ui:
+        from news_deframe.ui.server import launch
+        launch(host=host, port=port, open_browser=True)
+        ctx.exit()
+    elif ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
 
 
 @main.command("diff")
